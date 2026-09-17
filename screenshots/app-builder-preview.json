@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "人名条工坊",
+      "hasCanvas": true,
+      "bodyTextLen": 649,
+      "bodyTextHash": "be36e6c2d1304594ce92f236029bf8ed10c60d1bdd0f614eb828c241efa167e8",
+      "bodyTextPrefix": "T 人名条工坊 专业版 自动保存成功 16:9 29.97 FPS 25 FPS 30 FPS 透明 PNG 保存 导出视频 风",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "人名条工坊",
+      "hasCanvas": true,
+      "bodyTextLen": 473,
+      "bodyTextHash": "c88eef95446c6ec53dfbe40d0fc76425eee847c21814b3fd4fcf7804c570be95",
+      "bodyTextPrefix": "T 人名条工坊 导出视频 风格 嘉宾 动画 预设 我的 预览模式 透明 暗场 现场 安全框 0:01.6 / 0:21.8 10",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

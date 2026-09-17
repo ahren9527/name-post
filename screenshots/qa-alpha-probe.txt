@@ -1,0 +1,13 @@
+
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/workspace/screenshots/qa-alpha.mov':
+  Metadata:
+    major_brand     : qt  
+    minor_version   : 512
+    compatible_brands: qt  
+  Duration: 00:00:00.70, start: 0.000000, bitrate: 11388 kb/s
+  Stream #0:0[0x1](und): Video: png (png  / 0x20676E70), rgba(pc, gbr/unknown/unknown), 1280x720, 11379 kb/s, 29.97 fps, 29.97 tbr, 30k tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : PNG
+At least one output file must be specified
