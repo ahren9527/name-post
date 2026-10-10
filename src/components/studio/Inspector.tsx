@@ -118,11 +118,14 @@ export function Inspector() {
                 options={[1, 2, 3].map((n) => ({ value: n as TitleLines, label: `${n} ${orient === "vertical" ? "列" : "行"}` }))}
               />
             </Field>
-            <Field label={style === "sport" ? "号码" : "机构 / 标签"} hint="运动斜切显示为号码；新闻双层条显示为左侧标签；商务蓝白显示为机构行">
+            <Field
+              label={spec?.tagHint?.label ?? "机构 / 标签"}
+              hint={spec?.tagHint ? `「${spec.label}」显示为${spec.tagHint.label}` : "部分模板显示：运动斜切为号码、新闻双层条为左侧标签、学术讲座为机构行等"}
+            >
               <TextField
                 ariaLabel="机构或号码"
                 value={person.tag ?? ""}
-                placeholder={style === "sport" ? "10" : style === "newsduo" ? "现场" : "可选"}
+                placeholder={spec?.tagHint?.placeholder ?? "可选"}
                 onChange={(v) => st().updatePerson(person.id, { tag: v })}
               />
             </Field>

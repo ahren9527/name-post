@@ -2,7 +2,7 @@ import { Check, Plus, Search, Star, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { STYLE_CARDS, type PresetGroup, type StyleCard } from "@/lib/nameplates/presets";
-import { supportsVertical } from "@/lib/nameplates/premium/spec";
+import { TEMPLATE_CATEGORIES, supportsVertical, type TemplateCategory } from "@/lib/nameplates/premium/spec";
 import { useStudio } from "@/lib/nameplates/store";
 import { cn } from "@/lib/utils";
 import { LiveThumb } from "./LiveThumb";
@@ -29,6 +29,7 @@ const CLASSIC_GROUPS: { id: PresetGroup | "all"; label: string }[] = [
 export function TemplateGallery() {
   const [filter, setFilter] = useState<Filter>("premium");
   const [group, setGroup] = useState<PresetGroup | "all">("all");
+  const [sub, setSub] = useState<TemplateCategory | "all">("all");
   const [q, setQ] = useState("");
   const [hover, setHover] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -45,13 +46,13 @@ export function TemplateGallery() {
     const all = [...STYLE_CARDS, ...customPresets];
     return all
       .filter((c) => {
-        if (filter === "premium") return c.group === "premium" && !c.id.startsWith("custom-");
+        if (filter === "premium") return c.group === "premium" && !c.id.startsWith("custom-") && (sub === "all" || c.sub === sub);
         if (filter === "classic") return c.group !== "premium" && !c.id.startsWith("custom-") && (group === "all" || c.group === group);
         if (filter === "fav") return favorited.includes(c.id);
         return c.id.startsWith("custom-");
       })
       .filter((c) => !q.trim() || `${c.label}${c.caption}`.includes(q.trim()));
-  }, [filter, group, q, customPresets, favorited]);
+  }, [filter, group, sub, q, customPresets, favorited]);
 
   function apply(card: StyleCard) {
     useStudio.getState().applyPreset(card);
@@ -88,6 +89,23 @@ export function TemplateGallery() {
             className="h-8 w-full rounded-md bg-black/25 pr-2 pl-8 text-xs ring-1 ring-input outline-none placeholder:text-faint focus:ring-brand/60"
           />
         </div>
+        {filter === "premium" ? (
+          <div className="flex flex-wrap gap-1">
+            {[{ id: "all" as const, label: "全部" }, ...TEMPLATE_CATEGORIES].map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => setSub(g.id)}
+                className={cn(
+                  "h-6 rounded-full px-2.5 text-[11px] ring-1 transition-colors",
+                  sub === g.id ? "bg-accent text-foreground ring-brand/40" : "text-muted-foreground ring-border hover:text-foreground",
+                )}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {filter === "classic" ? (
           <div className="flex flex-wrap gap-1">
             {CLASSIC_GROUPS.map((g) => (

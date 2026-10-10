@@ -1,4 +1,4 @@
-import { TEMPLATES } from "./premium/spec";
+import { TEMPLATES, type TemplateCategory } from "./premium/spec";
 import type { NameplateStyle, Side } from "./types";
 
 export type PresetGroup =
@@ -25,6 +25,8 @@ export interface StyleCard {
   nameFontId?: string;
   titleFontId?: string;
   sweep?: boolean;
+  /** 旗舰 sub-category (gallery chips). */
+  sub?: TemplateCategory;
 }
 
 export function groupOf(style: NameplateStyle): PresetGroup {
@@ -71,6 +73,7 @@ export const PREMIUM_CARDS: StyleCard[] = TEMPLATES.map((t) => ({
   titleFontId: t.fonts.title,
   sweep: t.motion.sweepDefault,
   group: "premium",
+  sub: t.category,
 }));
 
 function card(

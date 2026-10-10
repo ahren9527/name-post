@@ -248,6 +248,8 @@ export async function loadNameplateFonts(ids?: FontId[]): Promise<void> {
         document.fonts.load(`500 16px "Montserrat"`, "ABC"),
         document.fonts.load(`600 16px "Montserrat"`, "ABC"),
         document.fonts.load(`600 18px "Cormorant Garamond"`, "ABC"),
+        document.fonts.load(`italic 500 18px "Cormorant Garamond"`, "Abc"),
+        document.fonts.load(`500 16px "JetBrains Mono"`, "A0"),
         document.fonts.load(`italic 700 40px "Barlow Condensed"`, "10"),
         document.fonts.ready,
       ]),

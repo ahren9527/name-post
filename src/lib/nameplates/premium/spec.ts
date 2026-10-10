@@ -29,7 +29,29 @@ export type PremiumStyle = Extract<
   | "redcarpet"
   | "sport"
   | "dialog"
+  | "variety"
+  | "docu"
+  | "finance"
+  | "lecture"
+  | "wedding"
+  | "aurora"
+  | "capsule"
+  | "magazine"
+  | "ink"
+  | "neon"
+  | "applewhite"
+  | "govred"
 >;
+
+/** Gallery sub-category inside the 旗舰 tab. */
+export type TemplateCategory = "news" | "ceremony" | "business" | "creative";
+
+export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string }[] = [
+  { id: "news", label: "新闻政务" },
+  { id: "ceremony", label: "典礼人文" },
+  { id: "business", label: "商务科技" },
+  { id: "creative", label: "综艺创意" },
+];
 
 export type ColorRef = string;
 
@@ -41,8 +63,8 @@ export type Fill =
 export type Region = "plate" | "name" | "title" | "tag" | "lead";
 
 export type PlateLayer =
-  /** Rectangle over a region; `fade` fades the inner end (fraction of width). */
-  | { kind: "rect"; region?: Region; fill: Fill; radius?: number; fade?: number; shadow?: number }
+  /** Rectangle over a region; `pill` rounds the ends fully. */
+  | { kind: "rect"; region?: Region; fill: Fill; radius?: number; fade?: number; shadow?: number; pill?: boolean }
   /** Rectangle with one corner cut (tech). */
   | { kind: "chamfer"; fill: Fill; cut: number }
   /** Parallelogram over a region. `skew` is the horizontal run per unit height. */
@@ -52,7 +74,11 @@ export type PlateLayer =
   /** Procedural paper fibre texture over the plate (source-atop). */
   | { kind: "paper"; strength: number }
   /** Large soft scrim behind type, no visible edge (keynote). */
-  | { kind: "scrim"; alpha: number };
+  | { kind: "scrim"; alpha: number }
+  /** Rounded card filled with slowly drifting soft colour blobs (极光). */
+  | { kind: "aurora"; radius: number; base: ColorRef; colors: ColorRef[] }
+  /** Ink-wash brush stroke: ragged edges, dry-brush streaks into the tail (水墨). */
+  | { kind: "brush"; fill: Fill };
 
 export type Ornament =
   /** Rule between name and title (or at plate bottom/top), grows from the outer edge. */
@@ -62,7 +88,7 @@ export type Ornament =
       color: ColorRef;
       width: number;
       span: "text" | "plate" | "name";
-      cap?: "diamond" | "dot";
+      cap?: "diamond" | "dot" | "flourish";
       fadeEnd?: boolean;
     }
   /** Vertical bar on the outer edge of the plate. */
@@ -78,9 +104,21 @@ export type Ornament =
   /** A bright segment running along the top/outer border (tech). */
   | { kind: "flow"; color: ColorRef; width: number }
   /** Small L-shaped corner ticks. */
-  | { kind: "ticks"; color: ColorRef; size: number; width: number };
+  | { kind: "ticks"; color: ColorRef; size: number; width: number }
+  /** Mini sparkline that draws itself at the inner end of the plate (财经). */
+  | { kind: "spark"; color: ColorRef; width: number }
+  /** Blinking terminal block after the last title line. */
+  | { kind: "cursor"; color: ColorRef }
+  /** Oversized editorial initial in the lead slot, cropped by the plate (杂志). */
+  | { kind: "initial"; color: ColorRef }
+  /** Glowing neon outline around the plate, flickers on. */
+  | { kind: "neon"; color: ColorRef; color2: ColorRef; width: number; radius: number }
+  /** 回纹 key-pattern band along the top/bottom edge. */
+  | { kind: "fret"; color: ColorRef; size: number; at: "top" | "bottom" | "both" }
+  /** A few twinkling four-point stars near a block corner (综艺). */
+  | { kind: "sparkle"; color: ColorRef };
 
-export type EnFont = "sans" | "serif" | "cond";
+export type EnFont = "sans" | "serif" | "cond" | "script" | "mono";
 
 export interface TypeSpec {
   /** px at scale 1 on a 1920×1080 frame. */
@@ -103,9 +141,15 @@ export interface TypeSpec {
   italic?: boolean;
   /** Soft drop shadow strength 0..1 (never an outline). */
   shadow: number;
+  /** Coloured glow instead of a drop shadow (neon). */
+  glow?: ColorRef;
+  /** Face for the tag / org line (defaults to the title face). */
+  tagFont?: EnFont;
+  /** English line casing: UPPER (default) or Title Case (script lines). */
+  enCase?: "upper" | "title";
 }
 
-export type LayoutKind = "stack" | "inline" | "tiers" | "column";
+export type LayoutKind = "stack" | "inline" | "tiers" | "column" | "blocks";
 
 export interface LayoutSpec {
   kind: LayoutKind;
@@ -119,7 +163,7 @@ export interface LayoutSpec {
   /** en line placement */
   en: "inline" | "above" | "below" | "column" | "none";
   /** what the lead slot (left of the name) holds */
-  lead?: "seal" | "dot" | "number" | "tag";
+  lead?: "seal" | "dot" | "number" | "tag" | "initial" | "stamp";
   /** where `tag` is printed when not in the lead slot */
   tag?: "above" | "below" | "none";
   titleLineHeight: number;
@@ -127,10 +171,16 @@ export interface LayoutSpec {
   skew?: number;
   /** min plate width, em of name */
   minWidth?: number;
+  /** blocks only: title block under the name ("stack") or joined on its right ("row") */
+  blocks?: "stack" | "row";
+  /** blocks only: vertical gap between name and title block (em of name) */
+  tierGap?: number;
+  /** blocks only: title block indent from the name block (em of name) */
+  titleIndent?: number;
 }
 
-export type PlateIn = "wipe" | "fade" | "rise" | "stamp";
-export type TextIn = "rise" | "mask" | "fade";
+export type PlateIn = "wipe" | "fade" | "rise" | "stamp" | "pop" | "flicker";
+export type TextIn = "rise" | "mask" | "fade" | "drift";
 export type PremiumEase = "expo" | "quint" | "back";
 
 export interface MotionSpec {
@@ -166,6 +216,9 @@ export interface TemplateSpec {
   /** Preset palette applied when the template is chosen. */
   palette: { name: string; title: string; accent: string; band: string };
   fonts: { name: "serif" | "sans" | "wenkai"; title: "serif" | "sans" };
+  category: TemplateCategory;
+  /** Inspector label / placeholder for the tag field when the template prints it. */
+  tagHint?: { label: string; placeholder: string };
 }
 
 const GOLD = "#CFAA66";
@@ -203,6 +256,7 @@ const baseMotion: MotionSpec = {
 export const TEMPLATES: TemplateSpec[] = [
   {
     id: "goldnavy",
+    category: "news",
     label: "央视金辉",
     caption: "藏青渐变底 · 宋体 · 金线",
     palette: { name: WARM, title: "#E9E4DA", accent: GOLD, band: "rgba(14,30,58,0.94)" },
@@ -240,6 +294,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "blackgold",
+    category: "ceremony",
     label: "黑金典藏",
     caption: "黑底细金框 · 英文副行",
     palette: { name: "#F4EEDF", title: "#E6DFCF", accent: GOLD, band: "rgba(10,9,8,0.9)" },
@@ -274,6 +329,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "keynote",
+    category: "business",
     label: "发布会极简",
     caption: "无装饰 · 大字 · 留白",
     palette: { name: "#FFFFFF", title: "#F2F2F2", accent: "#FFFFFF", band: "rgba(0,0,0,0.42)" },
@@ -300,6 +356,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "glass",
+    category: "business",
     label: "毛玻璃卡",
     caption: "烟熏玻璃底板 · 高光边",
     palette: { name: "#FFFFFF", title: "#EEF2F7", accent: "#FFFFFF", band: "rgba(28,34,46,0.55)" },
@@ -312,6 +369,8 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "newsduo",
+    category: "news",
+    tagHint: { label: "左侧标签", placeholder: "现场" },
     label: "新闻双层条",
     caption: "白色姓名条 + 红色职务块",
     palette: { name: "#14161C", title: "#FFFFFF", accent: RED, band: "rgba(255,255,255,0.97)" },
@@ -340,6 +399,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "techedge",
+    category: "business",
     label: "科技光边",
     caption: "深色切角底 · 青色流光边",
     palette: { name: "#FFFFFF", title: "#D9EEF4", accent: CYAN, band: "rgba(6,16,28,0.86)" },
@@ -361,6 +421,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "seal",
+    category: "ceremony",
     label: "国风印章",
     caption: "宋体 · 红色印章 · 宣纸纹理",
     palette: { name: "#1D1A16", title: "#3A342C", accent: RED, band: "rgba(246,239,226,0.95)" },
@@ -401,6 +462,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "xuan",
+    category: "ceremony",
     label: "宣纸竖排",
     caption: "竖排姓名 · 细线 · 纪录片",
     palette: { name: "#F6F1E6", title: "#E8E1D3", accent: "#C9B48A", band: "rgba(10,10,10,0.64)" },
@@ -445,6 +507,8 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "bizblue",
+    category: "business",
+    tagHint: { label: "机构行", placeholder: "FENJIU GROUP" },
     label: "商务蓝白",
     caption: "白色卡片 · 蓝色侧轨",
     palette: { name: NAVY, title: "#3E4A5E", accent: "#1F57C3", band: "rgba(255,255,255,0.97)" },
@@ -468,6 +532,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "redcarpet",
+    category: "ceremony",
     label: "红毯典礼",
     caption: "红金渐变 · 典礼",
     palette: { name: "#FFF5E1", title: "#F3E2C0", accent: "#D9B46C", band: "rgba(168,14,36,0.95)" },
@@ -493,6 +558,8 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "sport",
+    category: "creative",
+    tagHint: { label: "号码", placeholder: "10" },
     label: "运动斜切",
     caption: "陡斜切色块 · 号码位",
     palette: { name: "#FFFFFF", title: "#FFFFFF", accent: RED, band: "rgba(12,16,26,0.94)" },
@@ -526,6 +593,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "dialog",
+    category: "news",
     label: "对话访谈",
     caption: "两人镜像 · 左右对坐",
     palette: { name: "#FFFFFF", title: "#E7EAF0", accent: "#E6B85C", band: "rgba(14,16,22,0.8)" },
@@ -539,6 +607,364 @@ export const TEMPLATES: TemplateSpec[] = [
       { kind: "rule", at: "between", color: "$accent", width: 2, span: "name" },
     ],
     motion: { ...baseMotion, plate: "rise", ease: "quint" },
+  },
+  /* ------------------------------------------------------------ v2 set */
+  {
+    id: "variety",
+    category: "creative",
+    label: "卫视综艺",
+    caption: "糖果色圆角块 · 弹跳登场",
+    tagHint: { label: "角标", placeholder: "嘉宾" },
+    palette: { name: "#FFFFFF", title: "#1E1B2E", accent: "#FF3D7F", band: "#FFFFFF" },
+    fonts: { name: "sans", title: "sans" },
+    type: {
+      ...baseType,
+      name: 56,
+      title: 24,
+      en: 15,
+      nameWeight: 700,
+      nameTracking: 0.04,
+      titleWeight: 600,
+      titleTracking: 0.08,
+      titleAlpha: 1,
+      enWeight: 700,
+      enTracking: 0.16,
+      enFill: "rgba(255,255,255,0.86)",
+      tagFill: "#1E1B2E",
+      shadow: 0.12,
+    },
+    layout: { kind: "blocks", blocks: "stack", padX: 0.42, padY: 0, gap: 0, tail: 0, en: "inline", lead: "tag", tierGap: 0.12, titleIndent: 0.55, titleLineHeight: 1.4 },
+    plate: [
+      { kind: "rect", region: "title", pill: true, fill: { kind: "solid", color: "$band" }, shadow: 0.28 },
+      { kind: "rect", region: "name", pill: true, fill: { kind: "linear", stops: [[0, "$accent"], [1, "#FF8A3D"]] }, shadow: 0.35 },
+      { kind: "rect", region: "lead", pill: true, fill: { kind: "solid", color: "#FFD43B" }, shadow: 0.25 },
+    ],
+    ornaments: [{ kind: "sparkle", color: "#FFE66D" }],
+    motion: { ...baseMotion, plate: "pop", ease: "quint", sweepDefault: false },
+  },
+  {
+    id: "docu",
+    category: "ceremony",
+    label: "纪录片",
+    caption: "无底板 · 细宋宽字距 · 胶片感",
+    palette: { name: "#F5F1E8", title: "#E6E0D2", accent: "#D8C7A0", band: "rgba(0,0,0,0.5)" },
+    fonts: { name: "serif", title: "serif" },
+    type: {
+      ...baseType,
+      name: 60,
+      title: 24,
+      en: 14,
+      nameWeight: 500,
+      titleWeight: 500,
+      nameTracking: 0.34,
+      titleTracking: 0.24,
+      enTracking: 0.6,
+      enFont: "serif",
+      enWeight: 600,
+      enFill: "$accent",
+      titleAlpha: 0.86,
+      shadow: 0.6,
+    },
+    layout: { kind: "stack", padX: 0, padY: 0, gap: 0.62, tail: 0, en: "above", titleLineHeight: 1.6 },
+    plate: [{ kind: "scrim", alpha: 0.3 }],
+    ornaments: [{ kind: "rule", at: "between", color: "$accent", width: 1, span: "text", fadeEnd: true }],
+    motion: { ...baseMotion, plate: "fade", text: "drift", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "finance",
+    category: "business",
+    label: "财经数据",
+    caption: "终端深色底 · 代码行 · 走势线",
+    tagHint: { label: "代码 / 栏目", placeholder: "SZ 000858" },
+    palette: { name: "#FFFFFF", title: "#A9B4C2", accent: "#21D07A", band: "rgba(9,13,19,0.92)" },
+    fonts: { name: "sans", title: "sans" },
+    type: {
+      ...baseType,
+      name: 54,
+      title: 23,
+      en: 14,
+      nameWeight: 700,
+      nameTracking: 0.03,
+      titleWeight: 400,
+      titleTracking: 0.08,
+      titleAlpha: 0.95,
+      enFont: "mono",
+      enWeight: 500,
+      enTracking: 0.1,
+      enFill: "$accent",
+      tagFill: "$accent",
+      tagFont: "mono",
+      shadow: 0,
+    },
+    layout: { kind: "stack", padX: 0.5, padY: 0.38, gap: 0.42, tail: 2.5, en: "inline", tag: "above", titleLineHeight: 1.5 },
+    plate: [
+      { kind: "rect", fill: { kind: "linear", stops: [[0, "$band"], [1, "$band", 0.97]] }, shadow: 0.3 },
+      { kind: "rect", fill: { kind: "linear", axis: "y", stops: [[0, "#ffffff", 0.06], [0.45, "#ffffff", 0], [1, "#ffffff", 0]] } },
+    ],
+    ornaments: [
+      { kind: "rule", at: "top", color: "$accent", width: 2, span: "plate" },
+      { kind: "spark", color: "$accent", width: 2 },
+      { kind: "cursor", color: "$accent" },
+    ],
+    motion: { ...baseMotion, text: "mask", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "lecture",
+    category: "business",
+    label: "学术讲座",
+    caption: "白卡 · 院系色顶线 · 机构行",
+    tagHint: { label: "机构", placeholder: "经济管理学院" },
+    palette: { name: "#1A1A1A", title: "#4A4A4A", accent: "#8C1D40", band: "rgba(255,255,255,0.97)" },
+    fonts: { name: "serif", title: "sans" },
+    type: {
+      ...baseType,
+      name: 54,
+      title: 23,
+      en: 21,
+      nameWeight: 700,
+      nameTracking: 0.06,
+      titleWeight: 400,
+      titleTracking: 0.08,
+      titleAlpha: 0.95,
+      enFont: "script",
+      enWeight: 500,
+      enTracking: 0.01,
+      enCase: "title",
+      enFill: "#7A6A5A",
+      tagFill: "$accent",
+      shadow: 0,
+    },
+    layout: { kind: "stack", padX: 0.62, padY: 0.42, gap: 0.48, tail: 0, en: "inline", tag: "below", titleLineHeight: 1.5 },
+    plate: [{ kind: "rect", fill: { kind: "solid", color: "$band" }, radius: 3, shadow: 0.35 }],
+    ornaments: [
+      { kind: "rule", at: "top", color: "$accent", width: 6, span: "plate" },
+      { kind: "rule", at: "between", color: "#D9D4CC", width: 1, span: "text" },
+    ],
+    motion: { ...baseMotion, plate: "rise", text: "fade", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "wedding",
+    category: "ceremony",
+    label: "婚礼典雅",
+    caption: "香槟粉底 · 花体英文 · 细金线",
+    palette: { name: "#5A3B2E", title: "#7A5A4A", accent: "#C9A27A", band: "rgba(251,243,236,0.95)" },
+    fonts: { name: "serif", title: "serif" },
+    type: {
+      ...baseType,
+      name: 56,
+      title: 23,
+      en: 30,
+      nameWeight: 600,
+      nameTracking: 0.14,
+      titleWeight: 500,
+      titleTracking: 0.16,
+      titleAlpha: 0.92,
+      enFont: "script",
+      enWeight: 500,
+      enTracking: 0.01,
+      enCase: "title",
+      enFill: "#B07C6A",
+      shadow: 0,
+    },
+    layout: { kind: "stack", padX: 0.72, padY: 0.36, gap: 0.5, tail: 1.8, en: "above", titleLineHeight: 1.5 },
+    plate: [
+      { kind: "rect", fill: { kind: "linear", stops: [[0, "#F2D9D0", 0.97], [0.35, "$band"], [0.7, "$band", 0.94], [1, "$band", 0]] } },
+      { kind: "rect", fill: { kind: "linear", axis: "y", stops: [[0, "#ffffff", 0.35], [0.5, "#ffffff", 0], [1, "#E8C9B8", 0.16]] } },
+    ],
+    ornaments: [
+      { kind: "rule", at: "top", color: "$gold", width: 1, span: "plate", fadeEnd: true },
+      { kind: "rule", at: "bottom", color: "$gold", width: 1, span: "plate", fadeEnd: true },
+      { kind: "rule", at: "between", color: "$gold", width: 1, span: "text", cap: "flourish" },
+    ],
+    motion: { ...baseMotion, plate: "fade", text: "drift", ease: "quint" },
+  },
+  {
+    id: "aurora",
+    category: "creative",
+    label: "极光渐变",
+    caption: "流动极光色卡 · 柔光",
+    palette: { name: "#FFFFFF", title: "#EEF0FF", accent: "#9F8CFF", band: "rgba(20,18,48,0.74)" },
+    fonts: { name: "sans", title: "sans" },
+    type: { ...baseType, nameWeight: 700, nameTracking: 0.03, enFill: "#E4E0FF", titleAlpha: 0.9, shadow: 0.25 },
+    layout: { kind: "stack", padX: 0.62, padY: 0.42, gap: 0.42, tail: 0, en: "inline", titleLineHeight: 1.5 },
+    plate: [{ kind: "aurora", radius: 22, base: "$band", colors: ["#3EE6C1", "$accent", "#FF7AB6", "#5B8CFF"] }],
+    ornaments: [],
+    motion: { ...baseMotion, plate: "rise", ease: "quint", sweepDefault: false },
+  },
+  {
+    id: "capsule",
+    category: "creative",
+    label: "胶囊标签",
+    caption: "分段胶囊 · 状态标签 · 现代 UI",
+    tagHint: { label: "状态标签", placeholder: "LIVE" },
+    palette: { name: "#FFFFFF", title: "#16181D", accent: "#FF3B30", band: "rgba(22,24,30,0.94)" },
+    fonts: { name: "sans", title: "sans" },
+    type: {
+      ...baseType,
+      name: 46,
+      title: 21,
+      en: 13,
+      nameWeight: 700,
+      nameTracking: 0.03,
+      titleWeight: 500,
+      titleTracking: 0.08,
+      titleAlpha: 1,
+      enFill: "#9AA3B2",
+      enWeight: 600,
+      tagFill: "#FFFFFF",
+      shadow: 0,
+    },
+    layout: { kind: "blocks", blocks: "row", padX: 0.5, padY: 0, gap: 0, tail: 0, en: "inline", lead: "tag", titleLineHeight: 1.35 },
+    plate: [
+      { kind: "rect", region: "title", pill: true, fill: { kind: "solid", color: "#FFFFFF", alpha: 0.95 }, shadow: 0.3 },
+      { kind: "rect", region: "name", pill: true, fill: { kind: "solid", color: "$band" } },
+      { kind: "rect", region: "lead", pill: true, fill: { kind: "solid", color: "$accent" }, shadow: 0.25 },
+    ],
+    ornaments: [{ kind: "dot", color: "#FFFFFF" }],
+    motion: { ...baseMotion, plate: "pop", text: "fade", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "magazine",
+    category: "creative",
+    label: "杂志封面",
+    caption: "超大首字母 · 编辑排版",
+    palette: { name: "#111111", title: "#333333", accent: "#E0362C", band: "rgba(250,248,244,0.97)" },
+    fonts: { name: "serif", title: "sans" },
+    type: {
+      ...baseType,
+      name: 60,
+      title: 24,
+      en: 24,
+      nameWeight: 700,
+      nameTracking: 0.04,
+      titleWeight: 500,
+      titleTracking: 0.12,
+      titleAlpha: 0.92,
+      enFont: "script",
+      enWeight: 500,
+      enTracking: 0.01,
+      enCase: "title",
+      enFill: "$accent",
+      shadow: 0,
+    },
+    layout: { kind: "stack", padX: 0.5, padY: 0.42, gap: 0.46, tail: 0, en: "inline", lead: "initial", titleLineHeight: 1.5 },
+    plate: [{ kind: "rect", fill: { kind: "solid", color: "$band" }, shadow: 0.45 }],
+    ornaments: [
+      { kind: "initial", color: "$accent" },
+      { kind: "rule", at: "between", color: "#111111", width: 2, span: "name" },
+      { kind: "rule", at: "bottom", color: "$accent", width: 5, span: "plate" },
+    ],
+    motion: { ...baseMotion, text: "mask", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "ink",
+    category: "ceremony",
+    label: "水墨",
+    caption: "飞白笔触底 · 宋体 · 朱印",
+    palette: { name: "#F7F3EA", title: "#E7E1D4", accent: "#C8102E", band: "rgba(18,18,20,0.9)" },
+    fonts: { name: "serif", title: "serif" },
+    type: {
+      ...baseType,
+      name: 62,
+      title: 24,
+      en: 14,
+      nameWeight: 700,
+      nameTracking: 0.14,
+      titleWeight: 500,
+      titleTracking: 0.14,
+      titleAlpha: 0.86,
+      enFont: "serif",
+      enWeight: 600,
+      enTracking: 0.3,
+      enFill: "#BDB4A2",
+      shadow: 0.3,
+    },
+    layout: { kind: "stack", padX: 0.8, padY: 0.52, gap: 0.5, tail: 2.6, en: "below", lead: "stamp", titleLineHeight: 1.5 },
+    plate: [{ kind: "brush", fill: { kind: "linear", stops: [[0, "$band"], [0.6, "$band", 0.94], [1, "$band", 0]] } }],
+    ornaments: [{ kind: "seal", color: "$accent" }],
+    motion: { ...baseMotion, text: "fade", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "neon",
+    category: "creative",
+    label: "赛博霓虹",
+    caption: "霓虹描边 · 辉光 · 闪烁点亮",
+    palette: { name: "#FFFFFF", title: "#CFE9FF", accent: "#FF2BD6", band: "rgba(8,6,20,0.84)" },
+    fonts: { name: "sans", title: "sans" },
+    type: {
+      ...baseType,
+      nameWeight: 700,
+      nameTracking: 0.06,
+      enFont: "mono",
+      enWeight: 500,
+      enTracking: 0.18,
+      enFill: "#3CF2FF",
+      titleAlpha: 0.9,
+      glow: "$accent",
+      shadow: 0.3,
+    },
+    layout: { kind: "stack", padX: 0.62, padY: 0.42, gap: 0.46, tail: 0, en: "inline", titleLineHeight: 1.5 },
+    plate: [{ kind: "rect", fill: { kind: "linear", stops: [[0, "$band"], [1, "$band", 0.9]] }, radius: 10 }],
+    ornaments: [{ kind: "neon", color: "$accent", color2: "#3CF2FF", width: 2.5, radius: 10 }],
+    motion: { ...baseMotion, plate: "flicker", text: "fade", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "applewhite",
+    category: "business",
+    label: "发布会白",
+    caption: "白色圆角卡 · 黑灰字 · 极简",
+    palette: { name: "#1D1D1F", title: "#6E6E73", accent: "#0071E3", band: "rgba(255,255,255,0.95)" },
+    fonts: { name: "sans", title: "sans" },
+    type: {
+      ...baseType,
+      name: 56,
+      title: 23,
+      en: 13,
+      nameWeight: 700,
+      nameTracking: 0.01,
+      titleWeight: 400,
+      titleTracking: 0.08,
+      titleAlpha: 1,
+      enWeight: 600,
+      enTracking: 0.24,
+      enFill: "$accent",
+      shadow: 0,
+    },
+    layout: { kind: "stack", padX: 0.72, padY: 0.5, gap: 0.4, tail: 0, en: "above", titleLineHeight: 1.5 },
+    plate: [{ kind: "rect", fill: { kind: "solid", color: "$band" }, radius: 22, shadow: 0.3 }],
+    ornaments: [],
+    motion: { ...baseMotion, plate: "rise", ease: "quint", sweep: "none", sweepDefault: false },
+  },
+  {
+    id: "govred",
+    category: "news",
+    label: "政务庄重",
+    caption: "中国红底 · 金色回纹 · 对称",
+    palette: { name: "#FFE9B8", title: "#F6E3C0", accent: "#E2B65C", band: "rgba(170,18,24,0.96)" },
+    fonts: { name: "serif", title: "sans" },
+    type: {
+      ...baseType,
+      nameWeight: 700,
+      nameTracking: 0.12,
+      titleWeight: 500,
+      titleTracking: 0.12,
+      titleAlpha: 0.95,
+      enFont: "serif",
+      en: 17,
+      enWeight: 600,
+      enFill: "$accent",
+      shadow: 0.25,
+    },
+    layout: { kind: "inline", padX: 0.72, padY: 0.66, gap: 0.5, tail: 0, en: "column", titleLineHeight: 1.45 },
+    plate: [
+      { kind: "rect", fill: { kind: "linear", stops: [[0, "#8E0C12"], [0.3, "$band"], [1, "$band"]] }, shadow: 0.35 },
+      { kind: "rect", fill: { kind: "linear", axis: "y", stops: [[0, "#ffcf8a", 0.1], [0.5, "#ffffff", 0], [1, "#000000", 0.16]] } },
+    ],
+    ornaments: [
+      { kind: "fret", color: "$gold", size: 9, at: "both" },
+      { kind: "divider", color: "$gold", width: 1.5 },
+    ],
+    motion: { ...baseMotion, text: "mask" },
   },
 ];
 

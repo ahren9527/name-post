@@ -248,7 +248,19 @@ export const EN_FONTS = {
   sans: '"Montserrat", "Helvetica Neue", Arial, sans-serif',
   serif: '"Cormorant Garamond", "Times New Roman", serif',
   cond: '"Barlow Condensed", "Arial Narrow", sans-serif',
+  script: '"Cormorant Garamond", "Times New Roman", serif',
+  mono: '"JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace',
 } as const;
+
+/** English / pinyin line text in the template's casing. */
+function enText(p: Person, spec: TemplateSpec): string {
+  const raw = (p.en ?? "").trim();
+  if (!raw) return "";
+  if (spec.type.enCase === "title") {
+    return raw.toLowerCase().replace(/(^|[\s\-·'])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase());
+  }
+  return raw.toUpperCase();
+}
 
 function font(weight: number, size: number, family: string, italic = false) {
   return `${italic ? "italic " : ""}${weight} ${size.toFixed(2)}px ${family}`;
@@ -342,6 +354,14 @@ interface Laid {
   divider?: { x: number; y0: number; y1: number };
   seal?: { x: number; y: number; s: number; ch: string };
   dot?: { x: number; y: number; r: number };
+  /** editorial initial slot (local x, width) */
+  initial?: { x: number; w: number; ch: string };
+}
+
+/** Editorial initial: Latin initial of the English line, else the surname. */
+function initialOf(p: Person, en: string): string {
+  const m = en.match(/\p{L}/u);
+  return m ? m[0].toUpperCase() : surnameOf(p.name);
 }
 
 function nameU(cfg: RenderConfig) {
@@ -388,7 +408,12 @@ function sizesOf(spec: TemplateSpec, cfg: RenderConfig, person: Person): Sizes {
     E,
     nameFont: font(t.nameWeight, N, cfg.nameFont, t.italic),
     titleFont: font(t.titleWeight, T, cfg.titleFont, t.italic),
-    enFont: font(t.enWeight, E, EN_FONTS[t.enFont], t.italic && t.enFont !== "serif"),
+    enFont: font(
+      t.enFont === "script" ? Math.min(t.enWeight, 500) : t.enWeight,
+      E,
+      EN_FONTS[t.enFont],
+      t.enFont === "script" || (!!t.italic && t.enFont !== "serif"),
+    ),
     nameTrack: N * nameTrackEm,
     titleTrack: T * t.titleTracking,
     enTrack: E * t.enTracking,
@@ -442,20 +467,22 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   const t = spec.type;
   const { N, T, E } = s;
   const titles = titlesOf(p);
-  const en = (p.en ?? "").trim().toUpperCase();
+  const en = enText(p, spec);
   const tag = (p.tag ?? "").trim();
   const texts: TextItem[] = [];
 
   let leadW = 0;
   if (L.lead === "seal") leadW = N * 1.12 + N * 0.34;
   else if (L.lead === "dot") leadW = N * 0.3 + N * 0.32;
+  else if (L.lead === "initial") leadW = N * 1.5 + N * 0.36;
   const padX = L.padX * N;
   const x0 = padX + leadW;
   let y = L.padY * N;
   let contentW = 0;
 
   if (tag && L.tag === "above") {
-    const it = item(ctx, "tag", 0, tag, font(600, T * 0.78, famOf(s.titleFont)), T * 0.78, T * 0.12, t.tagFill ?? "$accent", 1);
+    const tf = t.tagFont ? EN_FONTS[t.tagFont] : famOf(s.titleFont);
+    const it = item(ctx, "tag", 0, tag, font(t.tagFont === "mono" ? 500 : 600, T * 0.78, tf), T * 0.78, T * (t.tagFont === "mono" ? 0.04 : 0.12), t.tagFill ?? "$accent", 1);
     place(it, x0, y);
     texts.push(it);
     contentW = Math.max(contentW, it.w);
@@ -503,7 +530,7 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   if (!titles.length) y -= gap * 0.35;
 
   if (en && L.en === "below") {
-    y += T * 0.5;
+    y += T * 0.66;
     const it = item(ctx, "en", 0, en, s.enFont, E, s.enTrack, t.enFill, 0.9);
     place(it, x0, y, true);
     texts.push(it);
@@ -512,7 +539,8 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   }
   if (tag && L.tag === "below") {
     y += T * 0.55;
-    const it = item(ctx, "tag", 0, tag, font(600, T * 0.8, famOf(s.titleFont)), T * 0.8, T * 0.1, t.tagFill ?? "$accent", 1);
+    const tf = t.tagFont ? EN_FONTS[t.tagFont] : famOf(s.titleFont);
+    const it = item(ctx, "tag", 0, tag, font(600, T * 0.8, tf), T * 0.8, T * 0.1, t.tagFill ?? "$accent", 1);
     place(it, x0, y);
     texts.push(it);
     contentW = Math.max(contentW, it.w);
@@ -541,6 +569,14 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   } else if (L.lead === "dot") {
     const r = N * 0.15;
     laid.dot = { x: padX + r, y: nameTop + N * 0.47, r };
+  } else if (L.lead === "stamp") {
+    // small seal after the name line, its top aligned with the cap height
+    const sz = N * 0.5;
+    laid.seal = { x: x0 + lineW + N * 0.42 + sz / 2, y: nameTop + N * 0.18 + sz / 2, s: sz, ch: surnameOf(p.name) };
+    laid.w = Math.max(laid.w, x0 + lineW + N * 0.42 + sz + padX + L.tail * N * 0.6);
+    laid.regions.plate!.w = laid.w;
+  } else if (L.lead === "initial") {
+    laid.initial = { x: padX, w: N * 1.5, ch: initialOf(p, en) };
   }
   return laid;
 }
@@ -550,7 +586,7 @@ function layoutInline(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Pers
   const t = spec.type;
   const { N, T, E } = s;
   const titles = titlesOf(p);
-  const en = (p.en ?? "").trim().toUpperCase();
+  const en = enText(p, spec);
   const texts: TextItem[] = [];
   const padX = L.padX * N;
   const padY = L.padY * N;
@@ -616,7 +652,7 @@ function layoutTiers(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   const { N, T, E } = s;
   const k = L.skew ?? 0;
   const titles = titlesOf(p);
-  const en = (p.en ?? "").trim().toUpperCase();
+  const en = enText(p, spec);
   const tag = (p.tag ?? "").trim();
   const texts: TextItem[] = [];
 
@@ -717,6 +753,119 @@ function layoutTiers(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   };
 }
 
+/**
+ * Rounded blocks: name block (+ optional lead chip) with the title either as
+ * a second, indented block underneath ("stack") or as a segment joined on
+ * the name block's right ("row" — a segmented capsule).
+ */
+function layoutBlocks(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, s: Sizes): Laid {
+  const L = spec.layout;
+  const t = spec.type;
+  const { N, T, E } = s;
+  const row = L.blocks === "row";
+  const titles = titlesOf(p);
+  const en = enText(p, spec);
+  const tag = (p.tag ?? "").trim();
+  const texts: TextItem[] = [];
+  const regions: Partial<Record<Region, Rect>> = {};
+  const padX = L.padX * N;
+
+  const nm = item(ctx, "name", 0, p.name.trim(), s.nameFont, N, s.nameTrack, t.nameFill, 1);
+  const enIt = en && L.en !== "none" ? item(ctx, "en", 0, en, s.enFont, E, s.enTrack, t.enFill, 0.95) : null;
+  const enGap = N * 0.3;
+  const lineW = nm.w + (enIt ? enGap + enIt.w : 0);
+  const tItems = titles.map((line, i) => item(ctx, "title", i, line, s.titleFont, T, s.titleTrack, t.titleFill, t.titleAlpha));
+  const titleW = Math.max(0, ...tItems.map((it) => it.w));
+  const tLH = T * L.titleLineHeight;
+  const titleColH = titles.length ? T + (titles.length - 1) * tLH : 0;
+  const tPadX = T * 0.85;
+
+  let row1H = N * 1.46;
+  if (row && titles.length) row1H = Math.max(row1H, titleColH + T * 1.1);
+
+  let x = 0;
+  let dot: Laid["dot"];
+  if (tag && L.lead === "tag") {
+    const cs = T * 0.8;
+    const tf = t.tagFont ? EN_FONTS[t.tagFont] : famOf(s.titleFont);
+    const chip = item(ctx, "tag", 0, tag, font(700, cs, tf), cs, cs * 0.1, t.tagFill ?? "#ffffff", 1);
+    const chipH = Math.min(row1H * 0.74, cs * 2.2);
+    const hasDot = spec.ornaments.some((o) => o.kind === "dot");
+    const dotR = hasDot ? chipH * 0.13 : 0;
+    const inner = chipH * 0.48;
+    const chipW = inner * 2 + chip.w + (hasDot ? dotR * 2 + chipH * 0.22 : 0);
+    const cy = (row1H - chipH) / 2;
+    regions.lead = { x: 0, y: cy, w: chipW, h: chipH };
+    const tx = inner + (hasDot ? dotR * 2 + chipH * 0.22 : 0);
+    chip.x = tx;
+    chip.y = cy + chipH / 2 + cs * 0.36;
+    chip.gx = tx;
+    chip.gw = chip.w;
+    chip.box = { x: tx, y: cy + (chipH - cs) / 2, w: chip.w, h: cs };
+    texts.push(chip);
+    if (hasDot) dot = { x: inner + dotR, y: cy + chipH / 2, r: dotR };
+    x = chipW + N * 0.14;
+  }
+
+  const nameW = padX * 2 + lineW;
+  regions.name = { x, y: 0, w: nameW, h: row1H };
+  const nameX = x + padX;
+  place(nm, nameX, (row1H - N) / 2 + N * 0.02);
+  nm.gx = nameX;
+  nm.gw = lineW;
+  texts.push(nm);
+  if (enIt) {
+    const ex = nameX + nm.w + enGap;
+    enIt.x = ex;
+    enIt.y = nm.y - N * 0.05;
+    enIt.box = { x: ex, y: enIt.y - E * 0.72, w: enIt.w, h: E * 0.74 };
+    enIt.gx = nameX;
+    enIt.gw = lineW;
+    texts.push(enIt);
+  }
+
+  let right = x + nameW;
+  let H = row1H;
+  let tx0 = 0;
+  if (titles.length) {
+    if (row) {
+      const overlap = row1H / 2;
+      tx0 = x + nameW + tPadX * 0.85;
+      const ty = (row1H - titleColH) / 2;
+      tItems.forEach((it, i) => place(it, tx0, ty + i * tLH));
+      regions.title = { x: x + nameW - overlap, y: 0, w: overlap + tPadX * 0.85 + titleW + tPadX * 1.05, h: row1H };
+    } else {
+      const gap = (L.tierGap ?? 0.12) * N;
+      const indent = (L.titleIndent ?? 0.4) * N;
+      const padY2 = T * 0.46;
+      const row2H = padY2 * 2 + titleColH;
+      const bx = x + indent;
+      tx0 = bx + tPadX;
+      tItems.forEach((it, i) => place(it, tx0, row1H + gap + padY2 + i * tLH));
+      regions.title = { x: bx, y: row1H + gap, w: tPadX * 2 + titleW, h: row2H };
+      H = row1H + gap + row2H;
+    }
+    texts.push(...tItems);
+    right = Math.max(right, regions.title.x + regions.title.w);
+  }
+  regions.plate = { x: 0, y: 0, w: right, h: H };
+  return {
+    spec,
+    person: p,
+    w: right,
+    h: H,
+    vertical: false,
+    regions,
+    texts,
+    textX0: nameX,
+    textX1: Math.max(nameX + lineW, titles.length ? tx0 + titleW : 0),
+    nameX0: nameX,
+    nameX1: nameX + nm.w,
+    ruleY: row1H,
+    dot,
+  };
+}
+
 const VPUNCT = new Set(["、", "，", "。", ",", "."]);
 
 /** Top offset of each glyph in a vertical column; punctuation takes half a cell. */
@@ -743,7 +892,7 @@ function layoutColumn(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Pers
   const T = s.T;
   const E = s.E;
   const titles = titlesOf(p);
-  const en = (p.en ?? "").trim().toUpperCase();
+  const en = enText(p, spec);
   const texts: TextItem[] = [];
   const padX = Math.max(L.padX, 0.4) * s.N;
   const padY = Math.max(L.padY, 0.4) * s.N;
@@ -839,6 +988,8 @@ function layoutOf(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, 
       return layoutInline(ctx, spec, p, s);
     case "tiers":
       return layoutTiers(ctx, spec, p, s);
+    case "blocks":
+      return layoutBlocks(ctx, spec, p, s);
     case "column":
       return layoutColumn(ctx, spec, p, s);
     default:
@@ -1047,6 +1198,14 @@ function shadowOn(ctx: CanvasRenderingContext2D, s: number) {
   ctx.shadowOffsetY = 8 * s;
 }
 
+/** Neon-style switch-on: a few hard flickers, then steady. */
+function flickerOf(p: number): number {
+  if (p >= 0.999) return 1;
+  const k = Math.floor(p * 14);
+  const pattern = [0, 0.7, 0.1, 0, 0.85, 0.3, 1, 0.55, 1, 1, 0.8, 1, 1, 1, 1];
+  return clamp(pattern[k] ?? 1) * clamp(p * 1.6);
+}
+
 /** Reveal clip for a plate region, drawn in flipped space (x=0 is the outer edge). */
 function revealPlate(ctx: CanvasRenderingContext2D, laid: Laid, r: Rect, p: number, m: Motion) {
   const kind = m.fadeOnly ? "fade" : laid.spec.motion.plate;
@@ -1059,6 +1218,17 @@ function revealPlate(ctx: CanvasRenderingContext2D, laid: Laid, r: Rect, p: numb
   } else if (kind === "rise") {
     ctx.translate(0, (1 - p) * 18);
     ctx.globalAlpha *= p;
+  } else if (kind === "pop") {
+    // springy scale from the block's outer-left centre, slight overshoot
+    const sc = 0.5 + 0.5 * easeBack(p);
+    const cx = r.x;
+    const cy = r.y + r.h / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(sc, sc);
+    ctx.translate(-cx, -cy);
+    ctx.globalAlpha *= clamp(p * 2.5);
+  } else if (kind === "flicker") {
+    ctx.globalAlpha *= flickerOf(p);
   } else if (kind === "stamp") {
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
@@ -1127,16 +1297,17 @@ function drawPlateLayer(
 
   switch (layer.kind) {
     case "rect": {
+      const rad = layer.pill ? r.h / 2 : (layer.radius ?? 0);
       if (layer.shadow) {
         ctx.save();
         shadowOn(ctx, layer.shadow);
         ctx.fillStyle = "rgba(0,0,0,0.001)";
-        roundRectPath(ctx, r, layer.radius ?? 0);
+        roundRectPath(ctx, r, rad);
         ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
         ctx.fill();
         ctx.restore();
       } else {
-        roundRectPath(ctx, r, layer.radius ?? 0);
+        roundRectPath(ctx, r, rad);
         ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
         ctx.fill();
       }
@@ -1203,6 +1374,57 @@ function drawPlateLayer(
       ctx.fillRect(r.x + layer.radius, r.y, r.w - layer.radius * 2, 1.2);
       break;
     }
+    case "aurora": {
+      const base = resolveRGBA(layer.base, pal);
+      ctx.save();
+      shadowOn(ctx, 0.5);
+      roundRectPath(ctx, r, layer.radius);
+      ctx.fillStyle = css(base);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      roundRectPath(ctx, r, layer.radius);
+      ctx.clip();
+      // drifting soft blobs; each one breathes on its own slow cycle
+      const t = m.local;
+      layer.colors.forEach((ref, i) => {
+        const c = resolveRGBA(ref, pal);
+        const n = layer.colors.length;
+        const fx = (i + 0.5) / n + Math.sin(t * 0.45 + i * 1.7) * 0.08;
+        const fy = i % 2 ? 0.95 + Math.cos(t * 0.38 + i) * 0.12 : 0.1 + Math.sin(t * 0.33 + i * 2.1) * 0.12;
+        const rad = Math.max(r.w / n, r.h) * (1.05 + 0.1 * Math.sin(t * 0.6 + i));
+        const cx = r.x + r.w * fx;
+        const cy = r.y + r.h * fy;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+        g.addColorStop(0, css(c, 0.85));
+        g.addColorStop(0.45, css(c, 0.4));
+        g.addColorStop(1, css(c, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      });
+      // re-darken the text zone a touch so white type always holds
+      const veil = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+      veil.addColorStop(0, css(base, 0.1));
+      veil.addColorStop(0.5, css(base, 0.24));
+      veil.addColorStop(1, css(base, 0.12));
+      ctx.fillStyle = veil;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      const hl = ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h * 0.5);
+      hl.addColorStop(0, "rgba(255,255,255,0.16)");
+      hl.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = hl;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.restore();
+      roundRectPath(ctx, { x: r.x + 0.5, y: r.y + 0.5, w: r.w - 1, h: r.h - 1 }, layer.radius);
+      ctx.strokeStyle = "rgba(255,255,255,0.24)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      break;
+    }
+    case "brush": {
+      drawBrush(ctx, r, layer.fill, pal, unfade, laid.person.name);
+      break;
+    }
     case "paper": {
       const pat = paperPattern(ctx);
       if (pat) {
@@ -1213,6 +1435,101 @@ function drawPlateLayer(
       }
       break;
     }
+  }
+  ctx.restore();
+}
+
+/** Seeded PRNG so a brush stroke is identical on every frame. */
+function rng(seed: number) {
+  let x = seed % 2147483647 || 1;
+  return () => {
+    x = (x * 16807) % 2147483647;
+    return x / 2147483647;
+  };
+}
+
+function hashStr(str: string) {
+  let h = 2166136261;
+  for (const ch of str) h = Math.imul(h ^ ch.codePointAt(0)!, 16777619);
+  return Math.abs(h) || 7;
+}
+
+/**
+ * Ink-wash stroke: a body with ragged top/bottom edges, darker pooled ink
+ * at the start, bristle streaks, and dry-brush (飞白) strands that thin out
+ * toward the tail. The plate's shared fade mask takes it to nothing.
+ */
+function drawBrush(ctx: CanvasRenderingContext2D, r: Rect, fill: Fill, pal: Pal, unfade: boolean, seedStr: string) {
+  const rnd = rng(hashStr(seedStr) + 97);
+  const steps = 90;
+  const amp = r.h * 0.022;
+  const ph1 = rnd() * 6;
+  const ph2 = rnd() * 6;
+  const top: [number, number][] = [];
+  const bot: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const x = r.x + r.w * u;
+    // stroke swells slightly in the middle and thins toward the tail
+    const taper = u < 0.06 ? 0.9 + u * 1.6 : u > 0.7 ? 1 - (u - 0.7) * 0.5 : 1;
+    const hh = (r.h / 2) * taper;
+    const cy = r.y + r.h / 2 + Math.sin(u * 2.6 + ph1) * r.h * 0.018;
+    // slow wobble + fine grain, grain grows rougher toward the dry tail
+    const wob = (k: number) => Math.sin(u * 9 + k) * r.h * 0.014 + Math.sin(u * 23 + k * 2) * r.h * 0.006;
+    const grain = () => (rnd() - 0.5) * amp * (0.4 + u * 1.4);
+    top.push([x, cy - hh + wob(ph1) + grain()]);
+    bot.push([x, cy + hh + wob(ph2) + grain()]);
+  }
+  ctx.save();
+  ctx.beginPath();
+  // rounded, slightly blobby start like a loaded brush touching paper
+  ctx.moveTo(top[0][0] + r.h * 0.05, top[0][1]);
+  top.forEach(([x, y], i) => i && ctx.lineTo(x, y));
+  for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]);
+  ctx.bezierCurveTo(r.x - r.h * 0.04, bot[0][1] - r.h * 0.2, r.x - r.h * 0.03, top[0][1] + r.h * 0.2, top[0][0] + r.h * 0.05, top[0][1]);
+  ctx.closePath();
+  ctx.fillStyle = fillStyleOf(ctx, fill, pal, r, unfade);
+  ctx.fill();
+  ctx.clip();
+  // pooled ink at the start, lighter wash toward the middle
+  const pool = ctx.createLinearGradient(r.x, 0, r.x + r.w * 0.45, 0);
+  pool.addColorStop(0, "rgba(0,0,0,0.35)");
+  pool.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = pool;
+  ctx.fillRect(r.x - 10, r.y - 10, r.w * 0.5, r.h + 20);
+  // bristle streaks: thin lighter lines running along the stroke
+  ctx.lineCap = "round";
+  for (let i = 0; i < 26; i++) {
+    const y = r.y + r.h * (0.06 + rnd() * 0.88);
+    const x0 = r.x + r.w * (0.05 + rnd() * 0.5);
+    const len = r.w * (0.2 + rnd() * 0.5);
+    ctx.strokeStyle = `rgba(255,255,255,${(0.025 + rnd() * 0.045).toFixed(3)})`;
+    ctx.lineWidth = 0.6 + rnd() * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + len, y + (rnd() - 0.5) * 3);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // dry-brush strands leaving the body into the tail (飞白)
+  const base = fill.kind === "linear" ? resolveRGBA(fill.stops[0][1], pal) : resolveRGBA(fill.color, pal);
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i = 0; i < 22; i++) {
+    const u = rnd();
+    const y = r.y + r.h * (0.08 + u * 0.84);
+    const x0 = r.x + r.w * (0.6 + rnd() * 0.15);
+    const len = r.w * (0.18 + rnd() * 0.3);
+    const g = ctx.createLinearGradient(x0, 0, x0 + len, 0);
+    const a = (0.25 + rnd() * 0.45) * base[3];
+    g.addColorStop(0, css(base, a));
+    g.addColorStop(1, css(base, 0));
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1 + rnd() * r.h * 0.06;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.quadraticCurveTo(x0 + len * 0.5, y + (rnd() - 0.5) * r.h * 0.08, x0 + len, y + (rnd() - 0.5) * r.h * 0.12);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -1279,6 +1596,28 @@ function drawOrnament(
         ctx.fillStyle = paint(ctx, o.color, pal, x0, y, x1, y, 1, !!o.fadeEnd);
       }
       ctx.fillRect(x0, y - o.width / 2, len, o.width);
+      if (o.cap === "flourish" && p > 0.05) {
+        // a tiny swash: two mirrored curls meeting at a diamond
+        const cx = x0 + len + 10;
+        const sz = 7 + o.width * 2;
+        ctx.save();
+        ctx.translate(cx, y);
+        ctx.globalAlpha *= clamp((p - 0.6) / 0.4);
+        ctx.strokeStyle = paint(ctx, o.color, pal, -sz, -sz, sz, sz);
+        ctx.lineWidth = Math.max(1, o.width);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(-10, 0);
+        ctx.bezierCurveTo(-4, -sz * 0.9, sz * 0.6, -sz * 0.9, sz * 0.5, -sz * 0.2);
+        ctx.moveTo(-10, 0);
+        ctx.bezierCurveTo(-4, sz * 0.9, sz * 0.6, sz * 0.9, sz * 0.5, sz * 0.2);
+        ctx.stroke();
+        ctx.translate(sz * 1.25, 0);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = paint(ctx, o.color, pal, -4, -4, 4, 4);
+        ctx.fillRect(-2.4, -2.4, 4.8, 4.8);
+        ctx.restore();
+      }
       if (o.cap === "diamond") {
         const cx = x0 + len;
         const s = 4.5 + o.width;
@@ -1385,8 +1724,178 @@ function drawOrnament(
       ctx.strokeStyle = css(resolveRGBA(o.color, pal), 0.35);
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, d.r + 5 + Math.sin(m.local * 3) * 1.2, 0, Math.PI * 2);
+      ctx.arc(0, 0, d.r + Math.min(5, d.r * 0.7) + Math.sin(m.local * 3) * Math.min(1.2, d.r * 0.2), 0, Math.PI * 2);
       ctx.stroke();
+      break;
+    }
+    case "spark": {
+      // mini sparkline at the inner end of the plate, beside the name
+      const nm = laid.texts.find((t) => t.kind === "name");
+      if (!nm) break;
+      const N = nm.size;
+      const x1 = W - N * 0.42;
+      const x0 = Math.max(laid.textX1 + N * 0.5, x1 - N * 2.2);
+      if (x1 - x0 < N * 0.8) break;
+      const top = nm.box.y + N * 0.05;
+      const bot = nm.box.y + N * 0.85;
+      const c = resolveRGBA(o.color, pal);
+      const vals = [0.35, 0.42, 0.3, 0.5, 0.46, 0.62, 0.55, 0.7, 0.64, 0.82, 0.76, 0.95];
+      const pts = vals.map((v, i) => [x0 + ((x1 - x0) * i) / (vals.length - 1), bot - (bot - top) * v] as [number, number]);
+      // keep the trend reading left → right on right-side plates too
+      if (flip) {
+        ctx.translate(x0 + x1, 0);
+        ctx.scale(-1, 1);
+      }
+      const k = p * (pts.length - 1);
+      const n = Math.floor(k);
+      const vis = pts.slice(0, n + 1);
+      if (n < pts.length - 1) {
+        const a = pts[n];
+        const b = pts[n + 1];
+        vis.push([a[0] + (b[0] - a[0]) * (k - n), a[1] + (b[1] - a[1]) * (k - n)]);
+      }
+      const end = vis[vis.length - 1];
+      // area wash
+      const g = ctx.createLinearGradient(0, top, 0, bot);
+      g.addColorStop(0, css(c, 0.28));
+      g.addColorStop(1, css(c, 0));
+      ctx.beginPath();
+      vis.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.lineTo(end[0], bot);
+      ctx.lineTo(x0, bot);
+      ctx.closePath();
+      ctx.fillStyle = g;
+      ctx.fill();
+      // baseline + line
+      ctx.fillStyle = css(c, 0.25);
+      ctx.fillRect(x0, bot, (x1 - x0) * p, 1);
+      ctx.beginPath();
+      vis.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.strokeStyle = css(c);
+      ctx.lineWidth = o.width;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+      // live point
+      const pulse = 0.5 + 0.5 * Math.sin(m.local * 4);
+      ctx.fillStyle = css(c, 0.25 * pulse);
+      ctx.beginPath();
+      ctx.arc(end[0], end[1], o.width * 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = css(mix(c, WHITE, 0.4));
+      ctx.beginPath();
+      ctx.arc(end[0], end[1], o.width * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "neon": {
+      const c = resolveRGBA(o.color, pal);
+      const c2 = resolveRGBA(o.color2, pal);
+      const f = flickerOf(p);
+      if (f <= 0.01) break;
+      ctx.globalAlpha *= f;
+      const i = o.width / 2;
+      const rr: Rect = { x: i, y: i, w: W - o.width, h: H - o.width };
+      const per = 2 * (rr.w + rr.h);
+      // glow pass, then a hot white-ish core
+      ctx.setLineDash([per * clamp(p * 1.4), per]);
+      ctx.lineWidth = o.width;
+      roundRectPath(ctx, rr, o.radius);
+      ctx.shadowColor = css(c, 0.95);
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = css(c);
+      ctx.stroke();
+      ctx.shadowBlur = 6;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = css(mix(c, WHITE, 0.55));
+      ctx.lineWidth = Math.max(1, o.width * 0.45);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // second-colour accent: a short bar along the bottom-outer corner
+      const len = Math.min(W * 0.32, 160) * clamp((p - 0.3) / 0.7);
+      if (len > 1) {
+        ctx.shadowColor = css(c2, 0.95);
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = css(mix(c2, WHITE, 0.25));
+        ctx.fillRect(o.radius + 6, H + 5, len, 2);
+        ctx.fillRect(o.radius + 6 + len + 8, H + 5, Math.min(14, len * 0.15), 2);
+      }
+      break;
+    }
+    case "fret": {
+      // 回纹 band, revealed from the outer edge
+      const c = o.color;
+      const u = o.size;
+      const bands: number[] = [];
+      const m0 = u * 0.55;
+      if (o.at !== "bottom") bands.push(m0);
+      if (o.at !== "top") bands.push(H - m0 - u);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W * p, H);
+      ctx.clip();
+      ctx.strokeStyle = paint(ctx, c, pal, 0, 0, W, H, 0.85);
+      ctx.lineWidth = Math.max(1, u * 0.14);
+      ctx.lineCap = "square";
+      for (const y of bands) {
+        const step = u * 1.5;
+        const x0 = u * 0.8;
+        const count = Math.max(0, Math.floor((W - x0 * 2) / step));
+        const off = (W - count * step) / 2;
+        ctx.beginPath();
+        for (let k = 0; k < count; k++) {
+          const x = off + k * step;
+          // one key: up, across, down, back, up (a squared spiral)
+          ctx.moveTo(x, y + u);
+          ctx.lineTo(x, y);
+          ctx.lineTo(x + u, y);
+          ctx.lineTo(x + u, y + u * 0.68);
+          ctx.lineTo(x + u * 0.36, y + u * 0.68);
+          ctx.lineTo(x + u * 0.36, y + u * 0.34);
+          ctx.moveTo(x, y + u);
+          ctx.lineTo(x + step, y + u);
+        }
+        ctx.stroke();
+        // hairlines framing the band
+        ctx.globalAlpha *= 0.6;
+        ctx.fillStyle = paint(ctx, c, pal, 0, 0, W, 0);
+        ctx.fillRect(off, y - u * 0.35, count * step, Math.max(1, u * 0.1));
+        ctx.globalAlpha /= 0.6;
+      }
+      ctx.restore();
+      break;
+    }
+    case "sparkle": {
+      const r = laid.regions.name;
+      if (!r) break;
+      const c = resolveRGBA(o.color, pal);
+      const stars: [number, number, number, number][] = [
+        [r.x + r.w - r.h * 0.18, r.y - r.h * 0.08, r.h * 0.2, 0],
+        [r.x + r.w + r.h * 0.12, r.y + r.h * 0.2, r.h * 0.11, 1.3],
+        [r.x + r.w - r.h * 0.55, r.y - r.h * 0.2, r.h * 0.08, 2.4],
+      ];
+      for (const [x, y, size, ph] of stars) {
+        const tw = 0.75 + 0.25 * Math.sin(m.local * 3.2 + ph);
+        const sp = clamp((p - 0.4 - ph * 0.08) / 0.4);
+        if (sp <= 0) continue;
+        const sz = size * easeBack(sp) * tw;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(m.local * 0.6 + ph);
+        ctx.fillStyle = css(c, sp);
+        ctx.shadowColor = css(c, 0.6);
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const a = (k * Math.PI) / 4;
+          const rad = k % 2 ? sz * 0.28 : sz;
+          ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
       break;
     }
     case "flow": {
@@ -1429,6 +1938,66 @@ function drawOrnament(
   ctx.restore();
 }
 
+
+/** Ornaments tied to the type, drawn unflipped like the text (initial, cursor). */
+function drawFrontOrnament(
+  ctx: CanvasRenderingContext2D,
+  o: Ornament,
+  laid: Laid,
+  pal: Pal,
+  m: Motion,
+  flip: boolean,
+) {
+  const W = laid.w;
+  const H = laid.h;
+  if (o.kind === "initial") {
+    const ini = laid.initial;
+    const p = m.name;
+    if (!ini || p <= 0.001) return;
+    const latin = /[A-Z]/.test(ini.ch);
+    const fam = latin ? EN_FONTS.serif : '"Noto Serif SC", "Songti SC", serif';
+    let size = H * (latin ? 1.22 : 0.98);
+    ctx.save();
+    ctx.font = font(latin ? 600 : 700, size, fam);
+    const mw = ctx.measureText(ini.ch).width;
+    if (mw > ini.w * 1.05) size *= (ini.w * 1.05) / mw;
+    ctx.font = font(latin ? 600 : 700, size, fam);
+    const gw = ctx.measureText(ini.ch).width;
+    const lx = ini.x + (ini.w - gw) / 2;
+    const x = flip ? W - lx - gw : lx;
+    // cropped by the plate: the letter bleeds off the top/bottom edges
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.rect(x - 20, 0, gw + 40, H * clamp(p * 1.1));
+    ctx.clip();
+    ctx.globalAlpha *= clamp(p * 1.6);
+    ctx.fillStyle = css(resolveRGBA(o.color, pal));
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(ini.ch, x, latin ? H * 0.5 + size * 0.36 : H * 0.5 + size * 0.36);
+    ctx.restore();
+    return;
+  }
+  if (o.kind === "cursor") {
+    const titles = laid.texts.filter((t) => t.kind === "title");
+    const last = titles[titles.length - 1] ?? laid.texts.find((t) => t.kind === "name");
+    if (!last) return;
+    const p = textProgress(last, m);
+    if (p < 0.98) return;
+    if (Math.floor(m.local * 1.8) % 2 === 1) return;
+    const sz = last.size;
+    const cw = sz * 0.5;
+    const lx = last.x + last.w + sz * 0.25;
+    const sx = flip ? W - (last.gx + last.gw) + (last.x - last.gx) + last.w + sz * 0.25 : lx;
+    ctx.save();
+    ctx.fillStyle = css(resolveRGBA(o.color, pal), 0.9);
+    ctx.fillRect(sx, last.box.y + sz * 0.08, cw, sz * 0.86);
+    ctx.restore();
+  }
+}
+
+const FRONT_ORNAMENTS = new Set<Ornament["kind"]>(["initial", "cursor"]);
 
 function textProgress(t: TextItem, m: Motion) {
   if (t.kind === "name") return m.name;
@@ -1474,10 +2043,21 @@ function drawText(
       }
       ctx.clip();
       ctx.globalAlpha *= clamp(p * 2);
+    } else if (kind === "drift") {
+      // film-title reveal: letters settle inward from a wider tracking
+      ctx.globalAlpha *= clamp(p * 1.2);
     } else {
       ctx.globalAlpha *= p;
       ctx.translate((flip ? 1 : -1) * (1 - p) * 10, 0);
     }
+  }
+  let track = t.track;
+  let dsx = 0;
+  if (kind === "drift" && p < 0.999 && (t.mode === "h" || t.mode === "center")) {
+    const extra = (1 - p) * t.size * 0.16;
+    const n = [...t.text].length;
+    track += extra;
+    if (flip) dsx = -(n - 1) * extra;
   }
 
   ctx.font = t.font;
@@ -1488,7 +2068,14 @@ function drawText(
 
   const fx = cfg.textFx ?? "soft";
   const sh = laid.spec.type.shadow;
+  const glow = laid.spec.type.glow;
   const applyShadow = () => {
+    if (glow && t.kind === "name" && fx !== "none") {
+      ctx.shadowColor = css(resolveRGBA(glow, pal), 0.85);
+      ctx.shadowBlur = t.size * 0.32;
+      ctx.shadowOffsetY = 0;
+      return;
+    }
     if (fx === "soft" && sh > 0) {
       ctx.shadowColor = `rgba(0,0,0,${0.5 * sh})`;
       ctx.shadowBlur = 4 + 12 * sh;
@@ -1508,13 +2095,13 @@ function drawText(
   };
 
   if (t.mode === "h") {
-    outline((st) => fillTracked(ctx, t.text, sx, t.y, t.track, st));
+    outline((st) => fillTracked(ctx, t.text, sx + dsx, t.y, track, st));
     applyShadow();
-    fillTracked(ctx, t.text, sx, t.y, t.track);
+    fillTracked(ctx, t.text, sx + dsx, t.y, track);
   } else if (t.mode === "center") {
-    outline((st) => fillTracked(ctx, t.text, sx, t.y, t.track, st));
+    outline((st) => fillTracked(ctx, t.text, sx + dsx, t.y, track, st));
     applyShadow();
-    fillTracked(ctx, t.text, sx, t.y, t.track);
+    fillTracked(ctx, t.text, sx + dsx, t.y, track);
   } else if (t.mode === "v") {
     const adv = t.adv ?? t.size * 1.1;
     ctx.textAlign = "center";
@@ -1647,7 +2234,7 @@ function plateFadeOf(laid: Laid, layers: PlateLayer[]): PlateFade | null {
   if (laid.vertical) return null;
   let stopT = -1;
   for (const l of layers) {
-    if ((l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer") && fadesOut(l.fill) && l.fill.kind === "linear") {
+    if ((l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer" || l.kind === "brush") && fadesOut(l.fill) && l.fill.kind === "linear") {
       const st = l.fill.stops;
       stopT = Math.max(stopT, st[st.length - 2][0]);
     }
@@ -1791,7 +2378,7 @@ function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pa
       const bounds: Rect = { x: -60, y: -60, w: laid.w + 120, h: laid.h + 140 };
       const zone = fade.end - fade.start;
       const isBase = (l: PlateLayer) =>
-        (l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer") && fadesOut(l.fill);
+        (l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer" || l.kind === "brush") && fadesOut(l.fill);
       drawMasked(ctx, 0, bounds, fade.start, fade.end, (c) => {
         paintLayers(c, true, isBase);
         // overlays (sheens, bottom tints) leave the fade zone early, so a dark
@@ -1810,9 +2397,12 @@ function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pa
   );
   withLayer(ctx, person, "slash", center, () =>
     flipped(() => {
-      for (const o of ornaments) drawOrnament(ctx, o, laid, pal, m, flip);
+      for (const o of ornaments) if (!FRONT_ORNAMENTS.has(o.kind)) drawOrnament(ctx, o, laid, pal, m, flip);
     }),
   );
+  withLayer(ctx, person, "slash", center, () => {
+    for (const o of ornaments) if (FRONT_ORNAMENTS.has(o.kind)) drawFrontOrnament(ctx, o, laid, pal, m, flip);
+  });
   const names = laid.texts.filter((t) => t.kind === "name" || t.kind === "en");
   const rest = laid.texts.filter((t) => t.kind === "title" || t.kind === "tag");
   withLayer(ctx, person, "name", center, () => names.forEach((t) => drawText(ctx, t, laid, pal, m, flip, cfg)));

@@ -37,7 +37,19 @@ export type NameplateStyle =
   | "bizblue"
   | "redcarpet"
   | "sport"
-  | "dialog";
+  | "dialog"
+  | "variety"
+  | "docu"
+  | "finance"
+  | "lecture"
+  | "wedding"
+  | "aurora"
+  | "capsule"
+  | "magazine"
+  | "ink"
+  | "neon"
+  | "applewhite"
+  | "govred";
 export type LayoutMode = "stack" | "sequence";
 export type Side = "left" | "right";
 export type Orient = "horizontal" | "vertical";
@@ -142,6 +154,18 @@ export const STYLE_META: Record<
   redcarpet: { label: "红毯典礼", caption: "红金渐变 · 典礼" },
   sport: { label: "运动斜切", caption: "陡斜切色块 · 号码位" },
   dialog: { label: "对话访谈", caption: "两人镜像 · 左右对坐" },
+  variety: { label: "卫视综艺", caption: "糖果色圆角块 · 弹跳登场" },
+  docu: { label: "纪录片", caption: "无底板 · 细宋宽字距 · 胶片感" },
+  finance: { label: "财经数据", caption: "终端深色底 · 代码行 · 走势线" },
+  lecture: { label: "学术讲座", caption: "白卡 · 院系色顶线 · 机构行" },
+  wedding: { label: "婚礼典雅", caption: "香槟粉底 · 花体英文 · 细金线" },
+  aurora: { label: "极光渐变", caption: "流动极光色卡 · 柔光" },
+  capsule: { label: "胶囊标签", caption: "分段胶囊 · 状态标签 · 现代 UI" },
+  magazine: { label: "杂志封面", caption: "超大首字母 · 编辑排版" },
+  ink: { label: "水墨", caption: "飞白笔触底 · 宋体 · 朱印" },
+  neon: { label: "赛博霓虹", caption: "霓虹描边 · 辉光 · 闪烁点亮" },
+  applewhite: { label: "发布会白", caption: "白色圆角卡 · 黑灰字 · 极简" },
+  govred: { label: "政务庄重", caption: "中国红底 · 金色回纹 · 对称" },
 };
 
 export function isColumnStyle(orient: Orient) {

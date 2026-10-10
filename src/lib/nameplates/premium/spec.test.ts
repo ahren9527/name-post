@@ -2,22 +2,36 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { packTitle } from "../text.ts";
 import { DEFAULT_CONFIG, STYLE_META, normalizeFamily } from "../types.ts";
-import { PREMIUM_IDS, TEMPLATES, TEMPLATE_BY_ID, isPremiumId, supportsVertical } from "./spec.ts";
+import { PREMIUM_IDS, TEMPLATES, TEMPLATE_BY_ID, TEMPLATE_CATEGORIES, isPremiumId, supportsVertical } from "./spec.ts";
 
-test("ships the 12 flagship templates with unique ids and metadata", () => {
-  assert.equal(TEMPLATES.length, 12);
-  assert.equal(new Set(PREMIUM_IDS).size, 12);
+test("ships the 24 flagship templates with unique ids and metadata", () => {
+  assert.equal(TEMPLATES.length, 24);
+  assert.equal(new Set(PREMIUM_IDS).size, 24);
   for (const t of TEMPLATES) {
     assert.ok(STYLE_META[t.id], `STYLE_META missing ${t.id}`);
     assert.equal(TEMPLATE_BY_ID[t.id], t);
     assert.ok(t.type.name / t.type.title >= 2 && t.type.name / t.type.title <= 2.6, `${t.id}: name:title ratio`);
     assert.ok(t.type.titleTracking >= 0.08, `${t.id}: title tracking`);
+    assert.ok(TEMPLATE_CATEGORIES.some((c) => c.id === t.category), `${t.id}: category`);
+    assert.equal(STYLE_META[t.id].label, t.label, `${t.id}: label matches STYLE_META`);
+  }
+  // every gallery sub-category has templates in it
+  for (const c of TEMPLATE_CATEGORIES) assert.ok(TEMPLATES.some((t) => t.category === c.id), c.id);
+});
+
+test("templates that print the tag field say so in the inspector", () => {
+  for (const id of ["sport", "newsduo", "bizblue", "variety", "finance", "lecture", "capsule"] as const) {
+    assert.ok(TEMPLATE_BY_ID[id].tagHint, id);
   }
 });
 
 test("vertical support is declared per template", () => {
   for (const id of ["goldnavy", "blackgold", "keynote", "seal", "xuan"]) assert.ok(supportsVertical(id), id);
   for (const id of ["glass", "newsduo", "techedge", "bizblue", "redcarpet", "sport", "dialog"]) assert.ok(!supportsVertical(id), id);
+  // the v2 set is horizontal-only
+  for (const id of ["variety", "docu", "finance", "lecture", "wedding", "aurora", "capsule", "magazine", "ink", "neon", "applewhite", "govred"]) {
+    assert.ok(!supportsVertical(id), id);
+  }
   // classic families keep their four variants
   assert.ok(supportsVertical("duo"));
 });
