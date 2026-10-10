@@ -2521,7 +2521,7 @@ export function drawPremiumFrame(
       const k = (1 - m.scale) / m.scale;
       ctx.translate((s.right ? l.w : 0) * k, l.h * k);
     }
-    drawPlate(ctx, l, m, pal, s.right, cfg);
+    drawPlate(ctx, l, m, pal, s.right && !spec.keepOrder, cfg);
     ctx.restore();
   }
 }

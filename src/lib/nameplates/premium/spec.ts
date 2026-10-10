@@ -213,6 +213,8 @@ export interface TemplateSpec {
   nativeVertical?: boolean;
   /** Alternate sides per person and pair them on one row (对话访谈). */
   mirrored?: boolean;
+  /** Right-side plates keep the left-to-right composition instead of mirroring. */
+  keepOrder?: boolean;
   /** Preset palette applied when the template is chosen. */
   palette: { name: string; title: string; accent: string; band: string };
   fonts: { name: "serif" | "sans" | "wenkai"; title: "serif" | "sans" };
@@ -793,6 +795,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "capsule",
+    keepOrder: true,
     category: "creative",
     label: "胶囊标签",
     caption: "分段胶囊 · 状态标签 · 现代 UI",
@@ -825,6 +828,7 @@ export const TEMPLATES: TemplateSpec[] = [
   },
   {
     id: "magazine",
+    keepOrder: true,
     category: "creative",
     label: "杂志封面",
     caption: "超大首字母 · 编辑排版",
