@@ -1,123 +1,138 @@
 import { useEffect, useRef } from "react";
-import { Switch } from "@/components/ui/switch";
-import { loadNameplateFonts } from "@/lib/nameplates/fonts";
+import { useShallow } from "zustand/react/shallow";
+import { FONT_SANS, FONT_SERIF, loadNameplateFonts, loadTextGlyphs, resolveFontStack } from "@/lib/nameplates/fonts";
 import { drawFrame, renderConfigFromState } from "@/lib/nameplates/renderer";
 import { useStudio } from "@/lib/nameplates/store";
+import type { PreviewBg } from "@/lib/nameplates/types";
 import { cn } from "@/lib/utils";
 
-const PREVIEW_W = 1280;
-const PREVIEW_H = 720;
+const PREVIEW_W = 1920;
+const PREVIEW_H = 1080;
+
+const BGS: { id: PreviewBg; label: string; swatch: string }[] = [
+  { id: "checker", label: "透明", swatch: "bg-checker" },
+  { id: "stage", label: "暗场", swatch: "bg-stage" },
+  { id: "light", label: "亮场", swatch: "bg-light" },
+  { id: "live", label: "现场", swatch: "bg-live" },
+];
 
 export function PreviewStage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const currentTime = useStudio((s) => s.currentTime);
   const previewBg = useStudio((s) => s.previewBg);
   const showSafe = useStudio((s) => s.showSafe);
+  // every field that changes the picture
+  const snapshot = useStudio(
+    useShallow((s) => [
+    s.currentTime,
+    s.people,
+    s.style,
+    s.layout,
+    s.side,
+    s.orient,
+    s.align,
+    s.scale,
+    s.textSize,
+    s.titleSize,
+    s.nameFontId,
+    s.titleFontId,
+    s.fontEpoch,
+    s.nameColor,
+    s.titleColor,
+    s.accentColor,
+    s.bandColor,
+    s.inDuration,
+    s.holdDuration,
+    s.outDuration,
+    s.stagger,
+    s.animIn,
+    s.ease,
+    s.sweep,
+    s.textFx,
+  ]),
+  );
   const people = useStudio((s) => s.people);
-  const style = useStudio((s) => s.style);
-  const layout = useStudio((s) => s.layout);
-  const side = useStudio((s) => s.side);
-  const align = useStudio((s) => s.align);
-  const scale = useStudio((s) => s.scale);
-  const textSize = useStudio((s) => s.textSize);
-  const titleSize = useStudio((s) => s.titleSize);
   const nameFontId = useStudio((s) => s.nameFontId);
   const titleFontId = useStudio((s) => s.titleFontId);
-  const fontEpoch = useStudio((s) => s.fontEpoch);
-  const nameColor = useStudio((s) => s.nameColor);
-  const titleColor = useStudio((s) => s.titleColor);
-  const accentColor = useStudio((s) => s.accentColor);
-  const bandColor = useStudio((s) => s.bandColor);
-  const sectionLabel = useStudio((s) => s.sectionLabel);
-  const inDuration = useStudio((s) => s.inDuration);
-  const holdDuration = useStudio((s) => s.holdDuration);
-  const outDuration = useStudio((s) => s.outDuration);
-  const stagger = useStudio((s) => s.stagger);
-  const animIn = useStudio((s) => s.animIn);
-  const ease = useStudio((s) => s.ease);
 
   useEffect(() => {
     let cancelled = false;
-    void loadNameplateFonts([
-      useStudio.getState().nameFontId,
-      useStudio.getState().titleFontId,
-    ]).then(() => {
-      if (cancelled) return;
-      useStudio.getState().bumpFontEpoch();
+    void loadNameplateFonts([useStudio.getState().nameFontId, useStudio.getState().titleFontId]).then(() => {
+      if (!cancelled) useStudio.getState().bumpFontEpoch();
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  // fetch the exact CJK glyphs in use so the first frames are not a fallback face
+  useEffect(() => {
+    const texts = people.flatMap((p) => [p.name, p.title, p.tag ?? ""]);
+    const stacks = [resolveFontStack(nameFontId, "name"), resolveFontStack(titleFontId, "title"), FONT_SERIF, FONT_SANS];
+    let cancelled = false;
+    void loadTextGlyphs(texts, stacks).then((loaded) => {
+      if (loaded && !cancelled) useStudio.getState().bumpFontEpoch();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [people, nameFontId, titleFontId]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d", { alpha: true });
     if (!canvas || !ctx) return;
-    drawFrame(ctx, canvas.width, canvas.height, currentTime, renderConfigFromState(useStudio.getState()));
-  }, [
-    currentTime,
-    people,
-    style,
-    layout,
-    side,
-    align,
-    scale,
-    textSize,
-    titleSize,
-    nameFontId,
-    titleFontId,
-    fontEpoch,
-    nameColor,
-    titleColor,
-    accentColor,
-    bandColor,
-    sectionLabel,
-    inDuration,
-    holdDuration,
-    outDuration,
-    stagger,
-    animIn,
-    ease,
-  ]);
+    const st = useStudio.getState();
+    drawFrame(ctx, canvas.width, canvas.height, st.currentTime, renderConfigFromState(st));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, snapshot);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="text-xs text-muted-foreground">预览模式</span>
-        {(
-          [
-            ["checker", "透明"],
-            ["stage", "暗场"],
-            ["live", "现场"],
-          ] as const
-        ).map(([key, label]) => (
+      <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-3 md:px-4">
+        <div className="flex items-center gap-1 rounded-md bg-black/30 p-0.5 ring-1 ring-hairline" role="radiogroup" aria-label="预览背景">
+          {BGS.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              role="radio"
+              aria-checked={previewBg === b.id}
+              onClick={() => useStudio.getState().setPreviewBg(b.id)}
+              className={cn(
+                "flex h-6 items-center gap-1.5 rounded-[5px] px-2 text-[11px] transition-colors",
+                previewBg === b.id ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className={cn("size-3 rounded-[3px] ring-1 ring-white/15", b.swatch)} />
+              {b.label}
+            </button>
+          ))}
+        </div>
+        <span className="hidden font-mono text-[11px] text-faint lg:inline">16:9 · 1920×1080 · 透明通道</span>
+        <label className="ml-auto flex cursor-pointer items-center gap-2 text-[11px] text-muted-foreground select-none">
+          <span>安全框</span>
           <button
-            key={key}
             type="button"
-            onClick={() => useStudio.getState().setPreviewBg(key)}
-            className={cn(
-              "h-6 rounded-sm px-2 text-xs",
-              previewBg === key ? "bg-brand text-brand-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-          安全框
-          <Switch
-            checked={showSafe}
-            onCheckedChange={(v) => useStudio.getState().setShowSafe(v)}
+            role="switch"
+            aria-checked={showSafe}
             aria-label="显示安全框"
-          />
+            onClick={() => useStudio.getState().setShowSafe(!showSafe)}
+            className={cn("relative h-4 w-7 rounded-full transition-colors", showSafe ? "bg-brand" : "bg-white/15")}
+          >
+            <span className={cn("absolute top-0.5 left-0.5 size-3 rounded-full bg-white shadow transition-transform", showSafe && "translate-x-3")} />
+          </button>
         </label>
       </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center p-3 [container-type:size]">
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-[radial-gradient(ellipse_at_center,#17181b_0%,#0d0e10_70%)] p-4 [container-type:size] md:p-6">
         <div
           className={cn(
-            "relative overflow-hidden rounded-lg shadow-[0_0_0_1px_rgb(255_255_255/0.06),0_24px_64px_rgb(0_0_0/0.45)]",
-            previewBg === "checker" ? "bg-checker" : previewBg === "live" ? "bg-live" : "bg-stage",
+            "relative overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgb(255_255_255/0.07),0_30px_80px_rgb(0_0_0/0.55)]",
+            previewBg === "checker"
+              ? "bg-checker"
+              : previewBg === "live"
+                ? "bg-live"
+                : previewBg === "light"
+                  ? "bg-light"
+                  : "bg-stage",
           )}
           style={{
             width: "min(100cqw, calc(100cqh * 16 / 9))",
@@ -132,10 +147,13 @@ export function PreviewStage() {
             aria-label="16:9 人名条预览"
           />
           {showSafe ? (
-            <div
-              className="pointer-events-none absolute inset-[8%] border border-dashed border-white/25"
-              aria-hidden
-            />
+            <>
+              <div className="pointer-events-none absolute inset-[5%] rounded-[2px] border border-white/15" aria-hidden />
+              <div className="pointer-events-none absolute inset-[10%] rounded-[2px] border border-dashed border-brand/35" aria-hidden />
+              <span className="pointer-events-none absolute top-[10%] left-[10%] -translate-y-full pb-0.5 font-mono text-[9px] tracking-wider text-brand/60" aria-hidden>
+                TITLE SAFE 80%
+              </span>
+            </>
           ) : null}
         </div>
       </div>

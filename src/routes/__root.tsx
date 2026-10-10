@@ -11,10 +11,10 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
-      { name: "theme-color", content: "#0c0c0d" },
+      { name: "theme-color", content: "#0d0e10" },
       {
         name: "description",
-        content: "16:9 竖版人名条，人名加职务，动画预览，导出带透明通道的视频。",
+        content: "广播级人名条在线制作：旗舰模板、动画预览，导出带透明通道的 MOV / PNG。",
       },
     ],
     links: [
@@ -27,11 +27,16 @@ export const Route = createRootRoute({
       },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      // PWA manifest is served by the server middleware; the static build has none
+      ...(import.meta.env.VITE_STATIC_BUILD
+        ? []
+        : [
+            { rel: "manifest", href: "/__grok/manifest.webmanifest" },
+            { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+          ]),
     ],
   }),
   component: () => (

@@ -1,4 +1,4 @@
-import type { AnimIn, EaseKind, LayoutMode, NameplateStyle, Orient, Person, Side, TextAlign } from "./types";
+import type { AnimIn, EaseKind, LayoutMode, NameplateStyle, Orient, Person, Side, TextAlign, TextFx } from "./types";
 
 export interface ProjectSnapshot {
   name: string;
@@ -23,6 +23,9 @@ export interface ProjectSnapshot {
   stagger: number;
   animIn: AnimIn;
   ease: EaseKind;
+  /** Added with the flagship templates; absent in older projects. */
+  sweep?: boolean;
+  textFx?: TextFx;
 }
 
 export interface SavedProject {
@@ -78,6 +81,8 @@ export function snapshotFromState(s: ProjectSnapshot): ProjectSnapshot {
     stagger: s.stagger,
     animIn: s.animIn,
     ease: s.ease,
+    sweep: s.sweep ?? true,
+    textFx: s.textFx,
   };
 }
 

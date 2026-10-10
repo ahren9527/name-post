@@ -1,4 +1,8 @@
 import { FONT_SANS, FONT_SERIF, resolveFontStack } from "./fonts";
+import { packTitle } from "./text";
+import { drawPremiumFrame, easeByName, isPremiumStyle } from "./premium/engine";
+
+export { packTitle };
 import {
   BASE_H,
   BASE_W,
@@ -19,8 +23,10 @@ const THEME = {
 };
 
 let PALETTE = { ...THEME };
+let TEXT_FX: RenderConfig["textFx"] = "soft";
 
 function applyPalette(cfg: RenderConfig) {
+  TEXT_FX = cfg.textFx ?? "soft";
   PALETTE = {
     name: cfg.nameColor || THEME.name,
     title: cfg.titleColor || THEME.title,
@@ -59,6 +65,7 @@ function easeLinear(t: number) {
 function easeOf(cfg: RenderConfig) {
   if (cfg.ease === "linear") return easeLinear;
   if (cfg.ease === "snap") return (t: number) => easeOut(easeOut(t));
+  if (cfg.ease === "expo" || cfg.ease === "quint" || cfg.ease === "back") return easeByName(cfg.ease);
   return easeOut;
 }
 
@@ -154,84 +161,6 @@ export function plateMotion(
   return finish(local, enterRaw, exit);
 }
 
-function splitTitleParts(text: string): string[] {
-  const parts: string[] = [];
-  let buf = "";
-  for (const ch of text) {
-    buf += ch;
-    if (ch === "、" || ch === "，") {
-      parts.push(buf);
-      buf = "";
-    }
-  }
-  if (buf) parts.push(buf);
-  return parts;
-}
-
-function splitEvenChars(text: string, n: number): string[] {
-  const chars = [...text];
-  if (chars.length === 0) return [];
-  const count = Math.min(Math.max(n, 1), chars.length);
-  const size = Math.ceil(chars.length / count);
-  const lines: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const chunk = chars.slice(i * size, (i + 1) * size).join("");
-    if (chunk) lines.push(chunk);
-  }
-  return lines;
-}
-
-function balanceParts(parts: string[], n: number): string[] {
-  if (parts.length === 0) return [];
-  if (parts.length === n) return parts;
-  if (parts.length < n) {
-    const buckets = [...parts];
-    while (buckets.length < n) {
-      let maxI = 0;
-      for (let i = 1; i < buckets.length; i++) {
-        if ([...buckets[i]!].length > [...buckets[maxI]!].length) maxI = i;
-      }
-      const chars = [...buckets[maxI]!];
-      if (chars.length < 2) break;
-      const mid = Math.ceil(chars.length / 2);
-      buckets.splice(maxI, 1, chars.slice(0, mid).join(""), chars.slice(mid).join(""));
-    }
-    return buckets;
-  }
-  const lines: string[] = [];
-  let i = 0;
-  for (let k = 0; k < n && i < parts.length; k++) {
-    const remainBuckets = n - k;
-    const remainChars = parts.slice(i).reduce((s, p) => s + [...p].length, 0);
-    const want = remainChars / remainBuckets;
-    let acc = "";
-    let accLen = 0;
-    while (i < parts.length) {
-      const nextLen = [...parts[i]!].length;
-      if (k === n - 1) {
-        acc += parts[i++];
-        continue;
-      }
-      if (acc && accLen + nextLen > want * 1.2) break;
-      acc += parts[i++];
-      accLen += nextLen;
-      if (accLen >= want * 0.8) break;
-    }
-    if (acc) lines.push(acc);
-  }
-  return lines;
-}
-
-export function packTitle(text: string, n: number): string[] {
-  const t = text.trim();
-  if (!t) return [];
-  const count = Math.max(1, Math.min(3, Math.round(n) || 1));
-  if (count === 1) return [t];
-  const parts = splitTitleParts(t);
-  if (parts.length === 1) return splitEvenChars(t, count);
-  return balanceParts(parts, count);
-}
-
 function nameEnds(name: string): { first: string; last: string } {
   const chars = [...name.trim()].filter(
     (c) => c !== "·" && c !== "•" && c !== "." && c !== " " && c !== "．" && c !== "・",
@@ -290,6 +219,14 @@ const HALO = "rgba(0, 0, 0, 0.92)";
 const STROKE_OUTER = "rgba(0,0,0,0.58)";
 const STROKE_CORE = "rgba(6, 8, 12, 0.96)";
 
+/** Default legibility: a very soft drop shadow instead of the legacy outline. */
+function softText(ctx: CanvasRenderingContext2D, strokeWidth: number) {
+  if (TEXT_FX === "none") return;
+  ctx.shadowColor = "rgba(0,0,0,0.42)";
+  ctx.shadowBlur = Math.max(6, strokeWidth * 2.2);
+  ctx.shadowOffsetY = Math.max(1, strokeWidth * 0.3);
+}
+
 function beginStroke(ctx: CanvasRenderingContext2D) {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
@@ -306,6 +243,13 @@ function paintTracked(
   strokeWidth: number,
 ) {
   ctx.save();
+  if (TEXT_FX !== "outline") {
+    softText(ctx, strokeWidth);
+    ctx.fillStyle = fill;
+    fillTracked(ctx, text, x, y, tracking);
+    ctx.restore();
+    return;
+  }
   beginStroke(ctx);
   ctx.shadowColor = HALO;
   ctx.shadowBlur = strokeWidth * 2.8;
@@ -337,6 +281,13 @@ function paintGlyph(
   strokeWidth: number,
 ) {
   ctx.save();
+  if (TEXT_FX !== "outline") {
+    softText(ctx, strokeWidth);
+    ctx.fillStyle = fill;
+    ctx.fillText(ch, x, y);
+    ctx.restore();
+    return;
+  }
   beginStroke(ctx);
   ctx.shadowColor = HALO;
   ctx.shadowBlur = strokeWidth * 2.8;
@@ -3527,6 +3478,11 @@ export function drawFrame(
   const people = cfg.people.filter((p) => p.name.trim().length > 0);
   if (people.length === 0) return;
 
+  if (isPremiumStyle(cfg.style)) {
+    drawPremiumFrame(ctx, people, time, cfg);
+    return;
+  }
+
   if (cfg.orient === "vertical") {
     const measured = people.map((p) => measureVerticalFamily(p, cfg));
     placePlates(ctx, people, time, cfg, measured, (plate, i, x, y, motion) => {
@@ -3647,6 +3603,8 @@ export function renderConfigFromState(state: {
   stagger: number;
   animIn?: import("./types").AnimIn;
   ease?: import("./types").EaseKind;
+  sweep?: boolean;
+  textFx?: import("./types").TextFx;
 }): RenderConfig {
   return {
     people: state.people,
@@ -3671,6 +3629,8 @@ export function renderConfigFromState(state: {
     stagger: state.stagger,
     animIn: state.animIn ?? "left",
     ease: state.ease ?? "smooth",
+    sweep: state.sweep ?? true,
+    textFx: state.textFx ?? "soft",
   };
 }
 
