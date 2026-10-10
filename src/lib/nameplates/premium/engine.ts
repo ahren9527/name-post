@@ -114,6 +114,26 @@ function goldStops(pal: Pal): [RGBA, RGBA, RGBA] {
   return [mix(a, WHITE, 0.3), a, mix(a, BLACK, 0.16)];
 }
 
+/** Smootherstep — zero slope at both ends, so a fade has no visible start or stop line. */
+const smoother = (t: number) => {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * x * (x * (x * 6 - 15) + 10);
+};
+
+/**
+ * Add eased fade-out stops to a gradient: full `alpha` until `from`, then a
+ * smootherstep falloff that reaches exactly 0 at t=1.
+ */
+function addFadeStops(g: CanvasGradient, rgba: (a: number) => string, alpha: number, from: number) {
+  const f = Math.min(0.98, Math.max(0, from));
+  g.addColorStop(0, rgba(alpha));
+  const n = 14;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    g.addColorStop(f + (1 - f) * t, rgba(alpha * (1 - smoother(t))));
+  }
+}
+
 /**
  * Paint style for a colour ref over a box. `$gold` becomes a diagonal
  * metallic gradient; `fade` fades the far end (t=1) to transparent.
@@ -132,35 +152,58 @@ function paint(
   if (ref === "$gold") {
     const [l, m, d] = goldStops(pal);
     const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    if (fade) {
+      // metallic tone shifts light → mid while the alpha eases out smoothly
+      const n = 14;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const tone = t < 0.5 ? mix(l, m, t * 2) : mix(m, d, (t - 0.5) * 2);
+        g.addColorStop(t, css(tone, alpha * (t < 0.4 ? 1 : 1 - smoother((t - 0.4) / 0.6))));
+      }
+      return g;
+    }
     g.addColorStop(0, css(l, alpha));
-    g.addColorStop(0.5, css(m, alpha * (fade ? 0.85 : 1)));
-    g.addColorStop(1, css(fade ? d : mix(m, l, 0.4), fade ? 0 : alpha));
+    g.addColorStop(0.5, css(m, alpha));
+    g.addColorStop(1, css(mix(m, l, 0.4), alpha));
     return g;
   }
   const c = resolveRGBA(ref, pal);
   if (!fade) return css(c, alpha);
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
-  g.addColorStop(0, css(c, alpha));
-  g.addColorStop(0.55, css(c, alpha * 0.85));
-  g.addColorStop(1, css(c, 0));
+  addFadeStops(g, (a) => css(c, a), alpha, 0.4);
   return g;
 }
 
+/** A horizontal fill whose inner end fades to nothing (the plate "tail"). */
+export function fadesOut(fill: Fill): boolean {
+  if (fill.kind !== "linear" || fill.axis === "y" || fill.stops.length < 2) return false;
+  const last = fill.stops[fill.stops.length - 1];
+  return last[0] >= 0.98 && (last[2] ?? 1) <= 0.001;
+}
+
+/**
+ * `unfade` drops a trailing transparent stop (holding the previous alpha
+ * instead) — used when one shared alpha mask fades the whole plate group.
+ */
 function fillStyleOf(
   ctx: CanvasRenderingContext2D,
   fill: Fill,
   pal: Pal,
   r: Rect,
+  unfade = false,
 ): string | CanvasGradient {
   if (fill.kind === "solid") return css(resolveRGBA(fill.color, pal), fill.alpha ?? 1);
   const vertical = fill.axis === "y";
   const g = vertical
     ? ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h)
     : ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y);
-  for (const [t, ref, a] of fill.stops) {
+  const stops = fill.stops;
+  const drop = unfade && fadesOut(fill);
+  stops.forEach(([t, ref, a], i) => {
     const c = ref === "$gold" ? goldStops(pal)[1] : resolveRGBA(ref, pal);
-    g.addColorStop(Math.max(0, Math.min(1, t)), css(c, a ?? 1));
-  }
+    const alpha = drop && i === stops.length - 1 ? (stops[i - 1][2] ?? 1) : (a ?? 1);
+    g.addColorStop(Math.max(0, Math.min(1, t)), css(c, alpha));
+  });
   return g;
 }
 
@@ -1034,27 +1077,40 @@ function drawPlateLayer(
   laid: Laid,
   pal: Pal,
   m: Motion,
+  unfade = false,
 ) {
   const plateR = laid.regions.plate!;
   if (layer.kind === "scrim") {
     const p = m.plate;
     if (p <= 0.001) return;
     const tb = textBounds(laid);
-    const cx = tb.x + tb.w / 2;
-    const cy = tb.y + tb.h / 2;
+    const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+    // A soft shade band anchored toward the screen edge: eased vertically and
+    // faded horizontally past the type with the same smootherstep the plates
+    // use — it reads as deliberate shading, never as a grey disc on light
+    // backgrounds.
+    const padV = N * 1.3;
+    const y0 = tb.y - padV;
+    const y1 = tb.y + tb.h + padV;
+    const x0 = -N * 3;
+    const fadeStart = tb.x + tb.w + N * 0.15;
+    const x1 = fadeStart + N * 3.2;
+    const bounds: Rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     ctx.save();
     ctx.globalAlpha *= p;
-    ctx.translate(cx, cy);
-    ctx.scale(tb.w * 0.95 + 160, tb.h * 1.25 + 90);
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-    g.addColorStop(0, `rgba(0,0,0,${layer.alpha})`);
-    g.addColorStop(0.35, `rgba(0,0,0,${layer.alpha * 0.7})`);
-    g.addColorStop(0.7, `rgba(0,0,0,${layer.alpha * 0.22})`);
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, 1, 0, Math.PI * 2);
-    ctx.fill();
+    drawMasked(ctx, 2, bounds, fadeStart, x1, (c) => {
+      const g = c.createLinearGradient(0, y0, 0, y1);
+      const n = 12;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const d = Math.abs(t - 0.5) * 2;
+        const core = (tb.h / 2) / (tb.h / 2 + padV);
+        const a = 1 - smoother((d - core * 0.7) / (1 - core * 0.7));
+        g.addColorStop(t, `rgba(0,0,0,${(layer.alpha * a).toFixed(4)})`);
+      }
+      c.fillStyle = g;
+      c.fillRect(x0, y0, x1 - x0, y1 - y0);
+    });
     ctx.restore();
     return;
   }
@@ -1076,12 +1132,12 @@ function drawPlateLayer(
         shadowOn(ctx, layer.shadow);
         ctx.fillStyle = "rgba(0,0,0,0.001)";
         roundRectPath(ctx, r, layer.radius ?? 0);
-        ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r);
+        ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
         ctx.fill();
         ctx.restore();
       } else {
         roundRectPath(ctx, r, layer.radius ?? 0);
-        ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r);
+        ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
         ctx.fill();
       }
       break;
@@ -1097,14 +1153,14 @@ function drawPlateLayer(
       ctx.closePath();
       ctx.save();
       shadowOn(ctx, 0.3);
-      ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r);
+      ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
       ctx.fill();
       ctx.restore();
       break;
     }
     case "skew": {
       skewPath(ctx, r, layer.skew);
-      ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r);
+      ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
       ctx.fill();
       break;
     }
@@ -1211,7 +1267,17 @@ function drawOrnament(
       }
       const y = o.at === "top" ? o.width / 2 : o.at === "bottom" ? H - o.width / 2 : (laid.ruleY ?? H / 2);
       const len = (x1 - x0) * p;
-      ctx.fillStyle = paint(ctx, o.color, pal, x0, y, x1, y, 1, !!o.fadeEnd);
+      const pf = o.span === "plate" && o.fadeEnd ? plateFadeOf(laid, laid.spec.plate) : null;
+      if (pf) {
+        // plate-long rules follow the plate's own fade curve exactly
+        const g = ctx.createLinearGradient(x0, y, x1, y);
+        const [l, mid] = goldStops(pal);
+        const tone = o.color === "$gold" ? mix(l, mid, 0.5) : resolveRGBA(o.color, pal);
+        addFadeStops(g, (a) => css(tone, a), 1, pf.start / Math.max(1, x1 - x0));
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = paint(ctx, o.color, pal, x0, y, x1, y, 1, !!o.fadeEnd);
+      }
       ctx.fillRect(x0, y - o.width / 2, len, o.width);
       if (o.cap === "diamond") {
         const cx = x0 + len;
@@ -1562,6 +1628,130 @@ function withLayer(
   ctx.restore();
 }
 
+/* ------------------------------------------------------------ plate fade */
+
+interface PlateFade {
+  /** local x (outer edge = 0) where the fade begins */
+  start: number;
+  /** local x where the plate reaches alpha 0 (the plate's inner end) */
+  end: number;
+}
+
+/**
+ * A plate "fades" when any horizontal layer runs out to transparent at its
+ * inner end. Instead of letting every layer fade (or not) on its own — which
+ * left hard edges where a sheen layer ran full width — the whole plate group
+ * is drawn offscreen and faded by one eased alpha mask.
+ */
+function plateFadeOf(laid: Laid, layers: PlateLayer[]): PlateFade | null {
+  if (laid.vertical) return null;
+  let stopT = -1;
+  for (const l of layers) {
+    if ((l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer") && fadesOut(l.fill) && l.fill.kind === "linear") {
+      const st = l.fill.stops;
+      stopT = Math.max(stopT, st[st.length - 2][0]);
+    }
+  }
+  if (stopT < 0) return null;
+  const W = laid.w;
+  const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+  // keep the type on solid plate, fade over the tail, and never shorter than ~2 em
+  let start = Math.max(stopT * W, laid.textX1 - N * 0.2);
+  start = Math.min(start, W - N * 2);
+  start = Math.max(start, W * 0.35);
+  return { start, end: W };
+}
+
+type Scratch = { cv: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D };
+const scratchPool: Scratch[] = [];
+
+function scratch(i: number, w: number, h: number): Scratch | null {
+  let s = scratchPool[i];
+  if (!s) {
+    let cv: HTMLCanvasElement | OffscreenCanvas;
+    if (typeof OffscreenCanvas !== "undefined") cv = new OffscreenCanvas(w, h);
+    else if (typeof document !== "undefined") {
+      cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+    } else return null;
+    const c = cv.getContext("2d") as CanvasRenderingContext2D | null;
+    if (!c) return null;
+    s = { cv, ctx: c };
+    scratchPool[i] = s;
+  }
+  if (s.cv.width < w || s.cv.height < h) {
+    s.cv.width = Math.max(s.cv.width, w);
+    s.cv.height = Math.max(s.cv.height, h);
+  }
+  return s;
+}
+
+/** Device-space bounding box of a local rect under the current transform. */
+function deviceBox(ctx: CanvasRenderingContext2D, r: Rect) {
+  const T = ctx.getTransform();
+  const pts = [
+    [r.x, r.y],
+    [r.x + r.w, r.y],
+    [r.x, r.y + r.h],
+    [r.x + r.w, r.y + r.h],
+  ].map(([x, y]) => [T.a * x + T.c * y + T.e, T.b * x + T.d * y + T.f]);
+  const cw = ctx.canvas.width;
+  const ch = ctx.canvas.height;
+  const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[0]))));
+  const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[1]))));
+  const x1 = Math.min(cw, Math.ceil(Math.max(...pts.map((p) => p[0]))));
+  const y1 = Math.min(ch, Math.ceil(Math.max(...pts.map((p) => p[1]))));
+  return { T, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * Draw `fn` into an offscreen copy of the current transform, multiply it by a
+ * horizontal eased alpha mask (1 before `start`, 0 at `end`) and composite the
+ * result back. Shadows, overlays and sweeps inside `fn` all fade together and
+ * nothing can poke past the plate's end. Fades only remove alpha — they never
+ * add dark pixels, so light backgrounds stay clean.
+ */
+function drawMasked(
+  ctx: CanvasRenderingContext2D,
+  slot: number,
+  bounds: Rect,
+  start: number,
+  end: number,
+  fn: (c: CanvasRenderingContext2D) => void,
+) {
+  const box = deviceBox(ctx, bounds);
+  if (box.w <= 0 || box.h <= 0) return;
+  const sc = scratch(slot, box.w, box.h);
+  if (!sc) {
+    fn(ctx);
+    return;
+  }
+  const c = sc.ctx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalCompositeOperation = "source-over";
+  c.globalAlpha = 1;
+  c.clearRect(0, 0, box.w, box.h);
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = "high";
+  const T = box.T;
+  c.setTransform(T.a, T.b, T.c, T.d, T.e - box.x, T.f - box.y);
+  c.save();
+  fn(c);
+  c.restore();
+  c.save();
+  c.globalCompositeOperation = "destination-in";
+  const g = c.createLinearGradient(start, 0, end, 0);
+  addFadeStops(g, (a) => `rgba(0,0,0,${a.toFixed(4)})`, 1, 0);
+  c.fillStyle = g;
+  c.fillRect(bounds.x - 4, bounds.y - 4, bounds.w + 8, bounds.h + 8);
+  c.restore();
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(sc.cv as CanvasImageSource, 0, 0, box.w, box.h, box.x, box.y, box.w, box.h);
+  ctx.restore();
+}
+
 function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pal, flip: boolean, cfg: RenderConfig) {
   const spec = laid.spec;
   const plateLayers = laid.vertical && spec.vertical ? spec.vertical.plate : spec.plate;
@@ -1580,15 +1770,42 @@ function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pa
     ctx.restore();
   };
 
+  const fade = plateFadeOf(laid, plateLayers);
+  const plateSweep = spec.motion.sweep === "plate";
+  const paintLayers = (c: CanvasRenderingContext2D, unfade: boolean, which: (l: PlateLayer) => boolean) => {
+    for (const l of plateLayers) {
+      if (l.kind === "paper" || !which(l)) continue;
+      drawPlateLayer(c, l, laid, pal, m, unfade);
+    }
+  };
   withLayer(ctx, person, "band", center, () =>
     flipped(() => {
-      for (const l of plateLayers) {
-        if (l.kind === "paper") continue;
-        drawPlateLayer(ctx, l, laid, pal, m);
+      if (!fade) {
+        paintLayers(ctx, false, () => true);
+        for (const l of plateLayers) {
+          if (l.kind === "paper") drawPlateLayer(ctx, l, laid, pal, m);
+        }
+        return;
       }
-      for (const l of plateLayers) {
-        if (l.kind === "paper") drawPlateLayer(ctx, l, laid, pal, m);
-      }
+      // generous margins so soft shadows are kept (and faded) too
+      const bounds: Rect = { x: -60, y: -60, w: laid.w + 120, h: laid.h + 140 };
+      const zone = fade.end - fade.start;
+      const isBase = (l: PlateLayer) =>
+        (l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer") && fadesOut(l.fill);
+      drawMasked(ctx, 0, bounds, fade.start, fade.end, (c) => {
+        paintLayers(c, true, isBase);
+        // overlays (sheens, bottom tints) leave the fade zone early, so a dark
+        // tint can never turn the fading tail grey on a light background
+        if (plateLayers.some((l) => !isBase(l) && l.kind !== "paper")) {
+          drawMasked(c, 1, bounds, fade.start - zone * 0.15, fade.start + zone * 0.5, (c2) =>
+            paintLayers(c2, true, (l) => !isBase(l)),
+          );
+        }
+        for (const l of plateLayers) {
+          if (l.kind === "paper") drawPlateLayer(c, l, laid, pal, m);
+        }
+        if (plateSweep) drawSweep(c, laid, m, flip);
+      });
     }),
   );
   withLayer(ctx, person, "slash", center, () =>
@@ -1600,7 +1817,7 @@ function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pa
   const rest = laid.texts.filter((t) => t.kind === "title" || t.kind === "tag");
   withLayer(ctx, person, "name", center, () => names.forEach((t) => drawText(ctx, t, laid, pal, m, flip, cfg)));
   withLayer(ctx, person, "title", center, () => rest.forEach((t) => drawText(ctx, t, laid, pal, m, flip, cfg)));
-  if (spec.motion.sweep === "plate") {
+  if (spec.motion.sweep === "plate" && !fade) {
     flipped(() => drawSweep(ctx, laid, m, flip));
   } else if (spec.motion.sweep === "text") {
     withLayer(ctx, person, "name", center, () => drawSweep(ctx, laid, m, flip));
