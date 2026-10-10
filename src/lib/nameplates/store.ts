@@ -6,7 +6,7 @@ import {
   ensureFontReady,
   type CustomFontMeta,
 } from "./fonts";
-import { groupOf, type StyleCard } from "./presets";
+import { groupOf, migrateFavorites, type StyleCard } from "./presets";
 import { isPremiumId, supportsVertical } from "./premium/spec";
 import { snapshotFromState, type ProjectSnapshot } from "./projects";
 import {
@@ -436,7 +436,6 @@ export const useStudio = create<StudioState>()(
           const t =
             st.currentTime < st.inDuration * 0.5 || st.playing ? hold : st.currentTime;
           const family = normalizeFamily(p.style);
-          const premium = isPremiumId(family.style);
           const orient = supportsVertical(family.style) ? st.orient : "horizontal";
           if (p.nameFontId) applyFont(p.nameFontId);
           if (p.titleFontId) applyFont(p.titleFontId);
@@ -448,7 +447,8 @@ export const useStudio = create<StudioState>()(
             nameFontId: p.nameFontId ?? st.nameFontId,
             titleFontId: p.titleFontId ?? st.titleFontId,
             sweep: p.sweep ?? st.sweep,
-            textFx: premium && st.textFx === "outline" ? "soft" : st.textFx,
+            // gallery templates are designed around the soft shadow + scrim; the legacy outline stays opt-in
+            textFx: st.textFx === "outline" ? "soft" : st.textFx,
             accentColor: p.accentColor ?? st.accentColor,
             bandColor: p.bandColor ?? st.bandColor,
             nameColor: p.nameColor ?? st.nameColor,
@@ -618,7 +618,8 @@ export const useStudio = create<StudioState>()(
           sweep: p.sweep ?? true,
           // returning users keep the legacy outlined text on classic styles
           textFx: p.textFx ?? (p.style && !isPremiumId(p.style as string) ? "outline" : "soft"),
-          favorited: p.favorited ?? ["duo-gold", "hook-white", "fold-white"],
+          // pre-v3 colour-variant card ids collapse onto their merged classic card
+          favorited: migrateFavorites(p.favorited ?? ["classic-duo", "classic-hook", "classic-fold"]),
           customPresets: p.customPresets ?? [],
           selectedClip: null,
           past: [],

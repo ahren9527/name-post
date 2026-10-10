@@ -1,7 +1,14 @@
 import { Check, Plus, Search, Star, Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { STYLE_CARDS, type PresetGroup, type StyleCard } from "@/lib/nameplates/presets";
+import {
+  STYLE_CARDS,
+  activeVariant,
+  cardWithVariant,
+  type PresetGroup,
+  type StyleCard,
+  type VariantKey,
+} from "@/lib/nameplates/presets";
 import { TEMPLATE_CATEGORIES, supportsVertical, type TemplateCategory } from "@/lib/nameplates/premium/spec";
 import { useStudio } from "@/lib/nameplates/store";
 import { cn } from "@/lib/utils";
@@ -132,63 +139,20 @@ export function TemplateGallery() {
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-x-3 gap-y-4 2xl:grid-cols-2">
-          {list.map((card) => {
-            const active = style === card.style && accentColor.toLowerCase() === card.accentColor.toLowerCase();
-            const starred = favorited.includes(card.id);
-            const noVertical = orient === "vertical" && !supportsVertical(card.style);
-            return (
-              <div
-                key={card.id}
-                onMouseEnter={() => setHover(card.id)}
-                onMouseLeave={() => setHover((h) => (h === card.id ? null : h))}
-                className="group"
-              >
-                <button
-                  type="button"
-                  onClick={() => apply(card)}
-                  onFocus={() => setHover(card.id)}
-                  onBlur={() => setHover(null)}
-                  className={cn(
-                    "relative block aspect-video w-full overflow-hidden rounded-lg ring-1 transition-[box-shadow,transform] duration-200",
-                    active
-                      ? "ring-2 ring-brand shadow-[0_0_0_4px_rgb(217_181_108/0.12)]"
-                      : "ring-border group-hover:ring-white/20",
-                  )}
-                  aria-label={`套用模板 ${card.label}`}
-                  aria-pressed={active}
-                >
-                  <LiveThumb card={card} person={person} playing={hover === card.id} className="size-full" />
-                  {active ? (
-                    <span className="absolute top-2 left-2 flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground shadow">
-                      <Check className="size-3" strokeWidth={3} />
-                    </span>
-                  ) : null}
-                  {noVertical ? (
-                    <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/80 backdrop-blur">
-                      仅横版
-                    </span>
-                  ) : null}
-                </button>
-                <div className="mt-1.5 flex items-center gap-2 px-0.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-medium text-foreground/95">{card.label}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{card.caption}</div>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={starred ? "取消收藏" : "收藏"}
-                    onClick={() => useStudio.getState().toggleFavorite(card.id)}
-                    className={cn(
-                      "rounded p-1 transition-opacity",
-                      starred ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                    )}
-                  >
-                    <Star className={cn("size-3.5", starred ? "fill-brand text-brand" : "text-muted-foreground")} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {list.map((card) => (
+            <GalleryCard
+              key={card.id}
+              card={card}
+              person={person}
+              playing={hover === card.id}
+              active={style === card.style && (card.variants ? true : accentColor.toLowerCase() === card.accentColor.toLowerCase())}
+              activeKey={style === card.style ? activeVariant(card, accentColor) : undefined}
+              starred={favorited.includes(card.id)}
+              noVertical={orient === "vertical" && !supportsVertical(card.style)}
+              onHover={(on) => setHover((h) => (on ? card.id : h === card.id ? null : h))}
+              onApply={apply}
+            />
+          ))}
         </div>
 
         {filter === "mine" || filter === "fav" ? (
@@ -248,3 +212,108 @@ export function TemplateGallery() {
     </div>
   );
 }
+
+const GalleryCard = memo(function GalleryCard({
+  card,
+  person,
+  playing,
+  active,
+  activeKey,
+  starred,
+  noVertical,
+  onHover,
+  onApply,
+}: {
+  card: StyleCard;
+  person: import("@/lib/nameplates/types").Person | undefined;
+  playing: boolean;
+  active: boolean;
+  activeKey: VariantKey | undefined;
+  starred: boolean;
+  noVertical: boolean;
+  onHover: (on: boolean) => void;
+  onApply: (card: StyleCard) => void;
+}) {
+  const [picked, setPicked] = useState<VariantKey | undefined>(undefined);
+  const key = picked ?? activeKey ?? card.variants?.[0]?.key;
+  const shown = useMemo(() => cardWithVariant(card, key), [card, key]);
+  const caption = card.caption && card.caption !== card.label ? card.caption : "";
+  return (
+    <div onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)} className="group">
+      <button
+        type="button"
+        onClick={() => onApply(shown)}
+        onFocus={() => onHover(true)}
+        onBlur={() => onHover(false)}
+        className={cn(
+          "relative block aspect-video w-full overflow-hidden rounded-lg ring-1 transition-[box-shadow,transform] duration-200",
+          active ? "ring-2 ring-brand shadow-[0_0_0_4px_rgb(217_181_108/0.12)]" : "ring-border group-hover:ring-white/20",
+        )}
+        aria-label={`套用模板 ${card.label}`}
+        aria-pressed={active}
+      >
+        <LiveThumb card={shown} person={person} playing={playing} className="size-full" />
+        {active ? (
+          <span className="absolute top-2 left-2 flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground shadow">
+            <Check className="size-3" strokeWidth={3} />
+          </span>
+        ) : null}
+        {noVertical ? (
+          <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/80 backdrop-blur">
+            仅横版
+          </span>
+        ) : null}
+      </button>
+      <div className="mt-1.5 flex items-center gap-2 px-0.5">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12.5px] font-medium text-foreground/95">{card.label}</div>
+          {caption ? <div className="truncate text-[11px] text-muted-foreground">{caption}</div> : null}
+        </div>
+        {card.variants && card.variants.length > 1 ? (
+          <div className="flex items-center gap-1" role="radiogroup" aria-label={`${card.label} 配色`}>
+            {card.variants.map((v) => {
+              const on = v.key === key;
+              return (
+                <button
+                  key={v.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  aria-label={`${card.label} · ${v.label}`}
+                  title={v.label}
+                  onClick={() => {
+                    setPicked(v.key);
+                    onApply(cardWithVariant(card, v.key));
+                  }}
+                  className={cn(
+                    "flex size-[18px] items-center justify-center rounded-full ring-1 transition-[box-shadow] duration-150",
+                    on ? "ring-white/70" : "ring-transparent hover:ring-white/30",
+                  )}
+                >
+                  <span
+                    className="size-3 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.25)]"
+                    style={{
+                      background:
+                        v.key === "gold" ? "linear-gradient(135deg, #EAD6A6, #B88F4E)" : v.swatch,
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          aria-label={starred ? "取消收藏" : "收藏"}
+          onClick={() => useStudio.getState().toggleFavorite(card.id)}
+          className={cn(
+            "rounded p-1 transition-opacity",
+            starred ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          )}
+        >
+          <Star className={cn("size-3.5", starred ? "fill-brand text-brand" : "text-muted-foreground")} />
+        </button>
+      </div>
+    </div>
+  );
+});

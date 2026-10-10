@@ -82,7 +82,7 @@ export function LiveThumb({
       nameFontId: card.nameFontId ?? st.nameFontId,
       titleFontId: card.titleFontId ?? st.titleFontId,
       sweep: card.sweep ?? st.sweep,
-      textFx: card.group === "premium" ? "soft" : st.textFx,
+      textFx: "soft",
       animIn: side === "right" ? "right" : "left",
       inDuration: 0.9,
       holdDuration: 2.2,

@@ -1,5 +1,6 @@
-import { TEMPLATES, type TemplateCategory } from "./premium/spec";
-import type { NameplateStyle, Side } from "./types";
+import { TEMPLATES, type TemplateCategory } from "./premium/spec.ts";
+import { CLASSIC_COLORS } from "./classic.ts";
+import type { NameplateStyle, Side } from "./types.ts";
 
 export type PresetGroup =
   | "premium"
@@ -27,6 +28,23 @@ export interface StyleCard {
   sweep?: boolean;
   /** 旗舰 sub-category (gallery chips). */
   sub?: TemplateCategory;
+  /** Classic colour variants (swatch dots on one gallery card). First = default. */
+  variants?: CardVariant[];
+}
+
+export type VariantKey = "white" | "gold" | "red" | "blue";
+
+export interface CardVariant {
+  key: VariantKey;
+  label: string;
+  /** Dot colour shown in the gallery. */
+  swatch: string;
+  accentColor: string;
+  bandColor: string;
+  nameColor: string;
+  titleColor: string;
+  /** Pre-v3 card ids that now resolve to this style + colour. */
+  legacyIds: string[];
 }
 
 export function groupOf(style: NameplateStyle): PresetGroup {
@@ -55,9 +73,6 @@ export function groupOf(style: NameplateStyle): PresetGroup {
   }
 }
 
-const GOLD = "#CFAA66";
-const RED = "#C8102E";
-
 /** Flagship cards: one per premium template, palette + fonts from its spec. */
 export const PREMIUM_CARDS: StyleCard[] = TEMPLATES.map((t) => ({
   id: `pro-${t.id}`,
@@ -76,83 +91,138 @@ export const PREMIUM_CARDS: StyleCard[] = TEMPLATES.map((t) => ({
   sub: t.category,
 }));
 
-function card(
-  id: string,
-  label: string,
-  style: NameplateStyle,
-  accent: string,
-  group: PresetGroup,
-  extra?: Partial<StyleCard>,
-): StyleCard {
+const C = CLASSIC_COLORS;
+const TITLE_LIGHT = "#ECE6DA";
+
+/** Scrim tint per colourway (translucent dark → tints the feathered backplate). */
+const SCRIM: Record<VariantKey, string> = {
+  white: "rgba(10,10,12,0.5)",
+  gold: "rgba(16,12,6,0.5)",
+  red: "rgba(24,8,9,0.5)",
+  blue: "rgba(8,14,22,0.5)",
+};
+
+const VARIANT_LABEL: Record<VariantKey, string> = { white: "白", gold: "金", red: "朱红", blue: "青" };
+const ACCENT: Record<VariantKey, string> = { white: C.white, gold: C.gold, red: C.red, blue: C.blue };
+
+function line(key: VariantKey, legacyIds: string[]): CardVariant {
   return {
-    id,
-    label,
-    caption: label,
-    style,
-    side: "left",
-    accentColor: accent,
-    bandColor: extra?.bandColor ?? (accent === GOLD ? "rgba(12,10,6,0.45)" : "rgba(10,10,10,0.5)"),
-    group,
-    ...extra,
+    key,
+    label: VARIANT_LABEL[key],
+    swatch: ACCENT[key],
+    accentColor: ACCENT[key],
+    bandColor: SCRIM[key],
+    nameColor: C.white,
+    titleColor: TITLE_LIGHT,
+    legacyIds,
   };
 }
 
+function banded(key: VariantKey, legacyIds: string[], nameColor: string, titleColor: string): CardVariant {
+  return { ...line(key, legacyIds), bandColor: ACCENT[key], nameColor, titleColor };
+}
+
+function classic(style: NameplateStyle, label: string, caption: string, variants: CardVariant[]): StyleCard {
+  const v = variants[0]!;
+  return {
+    id: `classic-${style}`,
+    label,
+    caption,
+    style,
+    side: "left",
+    accentColor: v.accentColor,
+    bandColor: v.bandColor,
+    nameColor: v.nameColor,
+    titleColor: v.titleColor,
+    nameFontId: "serif",
+    titleFontId: "sans",
+    group: groupOf(style),
+    variants,
+  };
+}
+
+/** One card per classic style; colourways are swatch dots on the card. */
 export const CLASSIC_CARDS: StyleCard[] = [
-  card("duo-gold", "双斜杠", "duo", GOLD, "slash"),
-  card("hook-white", "勾线", "hook", "#f4f4f4", "line"),
-  card("fold-white", "叠字", "fold", "#f4f4f4", "slash"),
-  card("split-white", "双栏", "split", "#f2f2f2", "split"),
-  card("underline-white", "下划线", "underline", "#f2f2f2", "line"),
-  card("block-white", "方块", "block", "#f4f4f4", "block"),
-  card("ledge-white", "侧勾", "ledge", "#f4f4f4", "line"),
-  card("wave-cyan", "光弧", "wave", "#3EC6E0", "wave", { bandColor: "rgba(8,18,28,0.4)" }),
-  card("bracket-red", "括号", "bracket", RED, "bracket", { bandColor: "rgba(20,8,8,0.4)" }),
-  card("skew-white", "斜切条", "skew", "#f4f4f4", "slash", {
-    bandColor: "#f4f4f4",
-    nameColor: "#141414",
-    titleColor: "#f2f2f2",
-  }),
-  card("rule-white", "竖线条", "rule", "#f4f4f4", "split", {
-    bandColor: "#f4f4f4",
-    nameColor: "#f7f7f7",
-    titleColor: "#161616",
-  }),
-  card("slash-white", "斜杠", "ceremony", "#f2f2f2", "slash"),
-  card("duo-white", "双斜杠白", "duo", "#f4f4f4", "slash"),
-  card("hook-gold", "勾线金", "hook", GOLD, "line"),
-  card("fold-gold", "叠字金", "fold", GOLD, "slash"),
-  card("split-gold", "双栏金", "split", GOLD, "split"),
-  card("underline-gold", "下划线金", "underline", GOLD, "line"),
-  card("underline-red", "下划线红", "underline", RED, "line", { bandColor: "rgba(20,8,8,0.5)" }),
-  card("block-gold", "方块金", "block", GOLD, "block"),
-  card("block-red", "方块红", "block", RED, "block", { bandColor: "rgba(20,8,8,0.5)" }),
-  card("ledge-gold", "侧勾金", "ledge", GOLD, "line"),
-  card("wave-gold", "光弧金", "wave", GOLD, "wave", { bandColor: "rgba(18,12,4,0.4)" }),
-  card("wave-blue", "光弧蓝", "wave", "#4f8cff", "wave", { bandColor: "rgba(8,14,28,0.4)" }),
-  card("bracket-white", "括号白", "bracket", "#f2f2f2", "bracket"),
-  card("bracket-gold", "括号金", "bracket", GOLD, "bracket"),
-  card("skew-gold", "斜切金", "skew", GOLD, "slash", {
-    bandColor: GOLD,
-    nameColor: "#1a1408",
-    titleColor: "#f3e6c0",
-  }),
-  card("skew-red", "斜切红", "skew", RED, "slash", {
-    bandColor: RED,
-    nameColor: "#ffffff",
-    titleColor: "#f2f2f2",
-  }),
-  card("rule-red", "竖线红条", "rule", RED, "split", {
-    bandColor: RED,
-    nameColor: "#f7f7f7",
-    titleColor: "#ffffff",
-  }),
-  card("rule-gold", "竖线金条", "rule", GOLD, "split", {
-    bandColor: GOLD,
-    nameColor: "#f7f7f7",
-    titleColor: "#1a1408",
-  }),
-  card("slash-gold", "斜杠金", "ceremony", GOLD, "slash"),
-  card("slash-blue", "斜杠蓝", "ceremony", "#4f8cff", "slash", { bandColor: "rgba(8,14,28,0.5)" }),
+  classic("duo", "双斜杠", "双斜杠 · 利落", [line("gold", ["duo-gold"]), line("white", ["duo-white"])]),
+  classic("hook", "勾线", "斜勾引线", [line("white", ["hook-white"]), line("gold", ["hook-gold"])]),
+  classic("fold", "叠字", "首尾叠字", [line("white", ["fold-white"]), line("gold", ["fold-gold"])]),
+  classic("split", "双栏", "竖线分栏", [line("white", ["split-white"]), line("gold", ["split-gold"])]),
+  classic("underline", "下划线", "渐隐细线", [
+    line("white", ["underline-white"]),
+    line("gold", ["underline-gold"]),
+    line("red", ["underline-red"]),
+  ]),
+  classic("block", "方块", "方标齐字顶", [line("white", ["block-white"]), line("gold", ["block-gold"]), line("red", ["block-red"])]),
+  classic("ledge", "侧勾", "侧竖线", [line("white", ["ledge-white"]), line("gold", ["ledge-gold"])]),
+  classic("wave", "光弧", "渐细光弧", [line("blue", ["wave-cyan", "wave-blue"]), line("gold", ["wave-gold"])]),
+  classic("bracket", "括号", "对角框线", [
+    line("red", ["bracket-red"]),
+    line("white", ["bracket-white"]),
+    line("gold", ["bracket-gold"]),
+  ]),
+  classic("skew", "斜切条", "斜切色块", [
+    banded("white", ["skew-white"], C.ink, TITLE_LIGHT),
+    banded("gold", ["skew-gold"], C.goldInk, TITLE_LIGHT),
+    banded("red", ["skew-red"], C.white, TITLE_LIGHT),
+  ]),
+  classic("rule", "竖线条", "竖条 + 底条", [
+    banded("white", ["rule-white"], C.white, C.ink),
+    banded("red", ["rule-red"], C.white, C.white),
+    banded("gold", ["rule-gold"], C.white, C.goldInk),
+  ]),
+  classic("ceremony", "斜杠", "斜标 + 细线", [
+    line("white", ["slash-white"]),
+    line("gold", ["slash-gold"]),
+    line("blue", ["slash-blue"]),
+  ]),
 ];
+
+/** Card + colourway → the flat preset the store applies. */
+export function cardWithVariant(card: StyleCard, key?: VariantKey): StyleCard {
+  const v = card.variants?.find((x) => x.key === key) ?? card.variants?.[0];
+  if (!v) return card;
+  return {
+    ...card,
+    accentColor: v.accentColor,
+    bandColor: v.bandColor,
+    nameColor: v.nameColor,
+    titleColor: v.titleColor,
+  };
+}
+
+const LEGACY_IDS = new Map<string, { cardId: string; variant: VariantKey }>(
+  CLASSIC_CARDS.flatMap((c) => (c.variants ?? []).flatMap((v) => v.legacyIds.map((id) => [id, { cardId: c.id, variant: v.key }] as const))),
+);
+
+/** Map a pre-v3 classic card id (e.g. "underline-gold") to its merged card + colourway. */
+export function resolveLegacyCardId(id: string): { cardId: string; variant?: VariantKey } {
+  return LEGACY_IDS.get(id) ?? { cardId: id };
+}
+
+/** Migrate a favourites list: legacy colour-variant ids collapse onto their style card. */
+export function migrateFavorites(ids: string[]): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    const next = resolveLegacyCardId(id).cardId;
+    if (!out.includes(next)) out.push(next);
+  }
+  return out;
+}
+
+/** Which colourway of a classic card matches the current colours (legacy colours included). */
+export function activeVariant(card: StyleCard, accentColor: string): VariantKey | undefined {
+  if (!card.variants) return undefined;
+  const norm = (c: string) => c.trim().toLowerCase();
+  const legacy: Record<string, string> = {
+    "#cfaa66": C.gold,
+    "#c8102e": C.red,
+    "#3ec6e0": C.blue,
+    "#4f8cff": C.blue,
+    "#f4f4f4": C.white,
+    "#f2f2f2": C.white,
+  };
+  const a = norm(legacy[norm(accentColor)] ?? accentColor);
+  return card.variants.find((v) => norm(v.accentColor) === a)?.key;
+}
 
 export const STYLE_CARDS: StyleCard[] = [...PREMIUM_CARDS, ...CLASSIC_CARDS];
