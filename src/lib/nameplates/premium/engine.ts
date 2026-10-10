@@ -174,9 +174,9 @@ function paint(
   return g;
 }
 
-/** A horizontal fill whose inner end fades to nothing (the plate "tail"). */
-export function fadesOut(fill: Fill): boolean {
-  if (fill.kind !== "linear" || fill.axis === "y" || fill.stops.length < 2) return false;
+/** A fill along `axis` whose inner end fades to nothing (the plate "tail"). */
+export function fadesOut(fill: Fill, axis: "x" | "y" = "x"): boolean {
+  if (fill.kind !== "linear" || (fill.axis ?? "x") !== axis || fill.stops.length < 2) return false;
   const last = fill.stops[fill.stops.length - 1];
   return last[0] >= 0.98 && (last[2] ?? 1) <= 0.001;
 }
@@ -198,7 +198,7 @@ function fillStyleOf(
     ? ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h)
     : ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y);
   const stops = fill.stops;
-  const drop = unfade && fadesOut(fill);
+  const drop = unfade && (fadesOut(fill, "x") || fadesOut(fill, "y"));
   stops.forEach(([t, ref, a], i) => {
     const c = ref === "$gold" ? goldStops(pal)[1] : resolveRGBA(ref, pal);
     const alpha = drop && i === stops.length - 1 ? (stops[i - 1][2] ?? 1) : (a ?? 1);
@@ -351,11 +351,17 @@ interface Laid {
   ruleX?: number;
   ruleY0?: number;
   ruleY1?: number;
-  divider?: { x: number; y0: number; y1: number };
+  /** vertical layouts: extent of the text columns (for text-long rules) */
+  spanY0?: number;
+  spanY1?: number;
+  /** hairline segment between two parts of the composition; grows from its midpoint */
+  divider?: { x0: number; y0: number; x1: number; y1: number };
   seal?: { x: number; y: number; s: number; ch: string };
   dot?: { x: number; y: number; r: number };
-  /** editorial initial slot (local x, width) */
-  initial?: { x: number; w: number; ch: string };
+  /** editorial initial slot (local x, width; vertical: header y, height) */
+  initial?: { x: number; w: number; ch: string; y?: number; h?: number };
+  /** vertical footer band (sparkline) */
+  foot?: { x0: number; x1: number; y0: number; y1: number };
 }
 
 /** Editorial initial: Latin initial of the English line, else the surname. */
@@ -475,6 +481,12 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
   if (L.lead === "seal") leadW = N * 1.12 + N * 0.34;
   else if (L.lead === "dot") leadW = N * 0.3 + N * 0.32;
   else if (L.lead === "initial") leadW = N * 1.5 + N * 0.36;
+  let serialIt: TextItem | null = null;
+  if (L.lead === "serial" && tag) {
+    const ns = N * 1.18;
+    serialIt = item(ctx, "tag", 0, tag, font(300, ns, EN_FONTS.sans), ns, ns * 0.02, t.tagFill ?? "$accent", 1);
+    leadW = serialIt.w + N * 0.66;
+  }
   const padX = L.padX * N;
   const x0 = padX + leadW;
   let y = L.padY * N;
@@ -546,6 +558,20 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
     contentW = Math.max(contentW, it.w);
     y += it.size;
   }
+  let serialDivider: Laid["divider"];
+  if (serialIt) {
+    const top = L.padY * N;
+    const mid = (top + y) / 2;
+    const ns = serialIt.size;
+    serialIt.x = padX;
+    serialIt.y = mid + ns * 0.36;
+    serialIt.gx = padX;
+    serialIt.gw = serialIt.w;
+    serialIt.box = { x: padX, y: mid - ns * 0.38, w: serialIt.w, h: ns * 0.76 };
+    texts.push(serialIt);
+    const dx = padX + serialIt.w + N * 0.33;
+    serialDivider = { x0: dx, x1: dx, y0: top + N * 0.04, y1: y - N * 0.04 };
+  }
   y += L.padY * N;
 
   const w = Math.max(x0 + contentW + padX + L.tail * N, (L.minWidth ?? 0) * N);
@@ -562,6 +588,7 @@ function layoutStack(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Perso
     nameX0: x0,
     nameX1: x0 + nm.w,
     ruleY,
+    divider: serialDivider,
   };
   if (L.lead === "seal") {
     const sz = N * 1.12;
@@ -642,7 +669,9 @@ function layoutInline(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Pers
     nameX0: x0,
     nameX1: x0 + nm.w,
     ruleY: h - padY * 0.5,
-    divider: hasCol ? { x: dividerX, y0: padY + (contentH - span) / 2, y1: padY + (contentH + span) / 2 } : undefined,
+    divider: hasCol
+      ? { x0: dividerX, x1: dividerX, y0: padY + (contentH - span) / 2, y1: padY + (contentH + span) / 2 }
+      : undefined,
   };
 }
 
@@ -885,104 +914,313 @@ function columnHeight(chars: string[], size: number, adv: number) {
   return columnTops(chars, adv)[chars.length - 1] + size;
 }
 
-function layoutColumn(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, s: Sizes): Laid {
+const HAN = /[\u3400-\u9fff\uf900-\ufaff]/;
+
+type VLead = "seal" | "dot" | "initial" | "number" | "chip" | "serial" | "none";
+
+function verticalLead(spec: TemplateSpec): VLead {
+  const V = spec.vertical;
+  if (V.lead) return V.lead;
+  switch (spec.layout.lead) {
+    case "seal":
+    case "stamp":
+      return "seal";
+    case "dot":
+      return "dot";
+    case "initial":
+      return "initial";
+    case "number":
+      return "number";
+    case "tag":
+      return "chip";
+    case "serial":
+      return "serial";
+    default:
+      return "none";
+  }
+}
+
+/** A vertical CJK column item (top-left at x, y). */
+function columnItem(
+  ctx: CanvasRenderingContext2D,
+  kind: TextKind,
+  index: number,
+  text: string,
+  fontStr: string,
+  size: number,
+  adv: number,
+  fill: ColorRef,
+  alpha: number,
+  x: number,
+  y: number,
+): TextItem {
+  const chars = [...text].filter((c) => c !== " ");
+  const it = item(ctx, kind, index, chars.join(""), fontStr, size, 0, fill, alpha);
+  const h = columnHeight(chars, size, adv);
+  it.mode = "v";
+  it.adv = adv;
+  it.x = x;
+  it.y = y;
+  it.w = size;
+  it.gx = x;
+  it.gw = size;
+  it.box = { x, y, w: size, h };
+  return it;
+}
+
+/** A Latin line rotated to read top → bottom (top-left at x, y). */
+function rotItem(
+  ctx: CanvasRenderingContext2D,
+  kind: TextKind,
+  text: string,
+  fontStr: string,
+  size: number,
+  track: number,
+  fill: ColorRef,
+  alpha: number,
+  x: number,
+  y: number,
+): TextItem {
+  const it = item(ctx, kind, 0, text, fontStr, size, track, fill, alpha);
+  it.mode = "rot";
+  it.x = x;
+  it.y = y;
+  it.box = { x, y, w: size * 0.74, h: it.w };
+  it.gx = x;
+  it.gw = size * 0.74;
+  return it;
+}
+
+/** Horizontal text centred in a box, shrunk to fit its width. */
+function chipItem(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  weight: number,
+  size: number,
+  family: string,
+  track: number,
+  fill: ColorRef,
+  box: Rect,
+  maxW: number,
+): TextItem {
+  let sz = size;
+  ctx.font = font(weight, sz, family);
+  const w0 = measureTracked(ctx, text, track);
+  if (w0 > maxW) sz *= maxW / w0;
+  const it = item(ctx, "tag", 0, text, font(weight, sz, family), sz, track * (sz / size), fill, 1);
+  it.x = box.x + box.w / 2 - it.w / 2;
+  it.y = box.y + box.h / 2 + sz * 0.36;
+  it.gx = it.x;
+  it.gw = it.w;
+  it.box = { ...box };
+  it.mode = "center";
+  return it;
+}
+
+/**
+ * Vertical (竖排) composition, driven by `spec.vertical`:
+ *   [lead: dot / chip / number / serial / initial header]
+ *   name column · rotated English column · rule · title columns · tag column
+ * "split" puts the name and the titles in their own blocks, the title block
+ * dropped down beside the name block (tiers, capsules, stickers).
+ */
+function layoutVertical(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, s: Sizes): Laid {
   const L = spec.layout;
+  const V = spec.vertical;
   const t = spec.type;
   const N = s.N * 0.98;
   const T = s.T;
   const E = s.E;
   const titles = titlesOf(p);
-  const en = enText(p, spec);
+  const en = V.en === "none" ? "" : enText(p, spec);
+  const tag = (p.tag ?? "").trim();
+  const tagMode = V.tag ?? (L.lead === "tag" || L.lead === "number" || L.lead === "serial" ? "lead" : L.tag === "above" || L.tag === "below" ? "column" : "none");
+  const lead0 = verticalLead(spec);
+  const lead: VLead = lead0 === "none" && tagMode === "lead" && tag ? "chip" : lead0;
+  const split = V.form === "split";
   const texts: TextItem[] = [];
-  const padX = Math.max(L.padX, 0.4) * s.N;
-  const padY = Math.max(L.padY, 0.4) * s.N;
-  const hasSeal = spec.ornaments.some((o) => o.kind === "seal") || spec.vertical?.ornaments.some((o) => o.kind === "seal");
+  const regions: Partial<Record<Region, Rect>> = {};
+  const padX = (V.padX ?? Math.max(L.padX, 0.4)) * s.N;
+  const padY = (V.padY ?? Math.max(L.padY, 0.4)) * s.N;
+  const gap = (V.gap ?? Math.max(L.gap, 0.42)) * s.N;
+  const tagFam = t.tagFont ? EN_FONTS[t.tagFont] : famOf(s.titleFont);
 
   const nameChars = [...p.name.trim()].filter((c) => c !== " ");
   const nAdv = N * 1.1;
   const nameH = columnHeight(nameChars, N, nAdv);
-  let x = padX;
-  const nameTop = padY;
-  const nm = item(ctx, "name", 0, nameChars.join(""), s.nameFont, N, 0, t.nameFill, 1);
-  nm.mode = "v";
-  nm.adv = nAdv;
-  nm.x = x;
-  nm.y = nameTop;
-  nm.w = N;
-  nm.gx = x;
-  nm.gw = N;
-  nm.box = { x, y: nameTop, w: N, h: nameH };
+  const enGap = N * 0.22;
+  const enW = en ? E * 0.74 : 0;
+  const nameColW = N + (en ? enGap + enW : 0);
+  const nameBlockW = padX * 2 + nameColW;
+
+  // ---- lead slot above the name column
+  let y = split ? 0 : padY;
+  const x0 = padX;
+  let dot: Laid["dot"];
+  let initial: Laid["initial"];
+  let divider: Laid["divider"];
+  if (lead === "dot") {
+    const r = N * 0.15;
+    dot = { x: x0 + N / 2, y: y + r, r };
+    y += r * 2 + N * 0.34;
+  } else if (lead === "initial") {
+    const hh = N * 1.75;
+    initial = { x: 0, w: 0, ch: initialOf(p, enText(p, spec)), y: 0, h: hh };
+    y = hh + N * 0.42;
+  } else if (lead === "serial" && tag) {
+    const ns = N * 0.92;
+    const it = item(ctx, "tag", 0, tag, font(300, ns, EN_FONTS.sans), ns, ns * 0.02, t.tagFill ?? "$accent", 1);
+    place(it, x0, y, true);
+    texts.push(it);
+    y += ns * 0.74 + N * 0.36;
+    divider = { x0: x0, x1: x0 + Math.max(N, it.w), y0: y, y1: y };
+    y += N * 0.4;
+  } else if ((lead === "chip" || lead === "number") && (tag || spec.vertical.plate.some((l) => (l.kind === "rect" || l.kind === "skew") && l.region === "lead"))) {
+    const isNum = lead === "number";
+    const chipH = isNum ? N * 1.25 : T * 1.75;
+    let natural = 0;
+    if (tag && !isNum) {
+      ctx.font = font(700, T * 0.8, tagFam);
+      natural = measureTracked(ctx, tag, T * 0.06) + T * 1.1;
+    }
+    const w = split ? nameBlockW : Math.max(N, nameColW, natural);
+    const box: Rect = { x: split ? 0 : x0, y, w, h: tag || isNum ? chipH : T * 0.5 };
+    regions.lead = box;
+    if (tag) {
+      const it = isNum
+        ? chipItem(ctx, tag, 700, chipH * 0.62, EN_FONTS.cond, 0, t.tagFill ?? "#ffffff", box, w * 0.86)
+        : chipItem(ctx, tag, tagFam === EN_FONTS.mono ? 500 : 700, T * 0.8, tagFam, T * 0.06, t.tagFill ?? "$accent", box, w - T * 0.6);
+      if (isNum) it.font = font(700, it.size, EN_FONTS.cond, true);
+      texts.push(it);
+    }
+    y += box.h + (split ? N * 0.1 : N * 0.3);
+  }
+
+  // ---- name column (+ en)
+  const blockTop = y;
+  const nameTop = split ? blockTop + padY : y;
+  const nm = columnItem(ctx, "name", 0, nameChars.join(""), s.nameFont, N, nAdv, t.nameFill, 1, x0, nameTop);
   texts.push(nm);
-  let colRight = x + N;
-  let seal: Laid["seal"];
+  let colRight = x0 + N;
   let bottom = nameTop + nameH;
-  if (hasSeal && L.lead === "seal") {
-    const sz = N * 0.62;
-    seal = { x: x + N / 2, y: bottom + N * 0.36 + sz / 2, s: sz, ch: surnameOf(p.name) };
+  let seal: Laid["seal"];
+  if (lead === "seal") {
+    const small = L.lead === "stamp";
+    const sz = N * (small ? 0.5 : 0.62);
+    seal = { x: x0 + N / 2, y: bottom + N * 0.36 + sz / 2, s: sz, ch: surnameOf(p.name) };
     bottom = seal.y + sz / 2;
   }
-
   if (en) {
-    const it = item(ctx, "en", 0, en, s.enFont, E, s.enTrack, t.enFill, 0.9);
-    const ex = colRight + N * 0.22;
-    it.mode = "rot";
-    it.x = ex;
-    it.y = nameTop + N * 0.06;
-    it.box = { x: ex, y: it.y, w: E * 0.74, h: it.w };
-    it.gx = ex;
-    it.gw = E * 0.74;
+    const it = rotItem(ctx, "en", en, s.enFont, E, s.enTrack, t.enFill, 0.9, colRight + enGap, nameTop + N * 0.06);
     texts.push(it);
-    colRight = ex + E * 0.74;
+    colRight += enGap + enW;
     bottom = Math.max(bottom, it.y + it.w);
   }
+  regions.name = split
+    ? { x: 0, y: blockTop, w: nameBlockW, h: bottom - blockTop + padY }
+    : { x: x0 - N * 0.2, y: nameTop - N * 0.2, w: colRight - x0 + N * 0.4, h: bottom - nameTop + N * 0.4 };
 
-  const gap = L.gap * s.N;
-  const ruleX = colRight + gap * 0.5;
-  x = colRight + gap;
+  // ---- title columns (+ tag column)
   const tAdv = T * 1.26;
-  const titleTop = nameTop + N * 0.12;
+  const colGap = T * (V.colGap ?? 0.62);
+  const cols: TextItem[] = [];
+  const tPadX = T * 0.62;
+  const tPadY = T * (V.titlePad ?? 0.72);
+  let tx: number;
+  let titleTop: number;
+  if (split) {
+    tx = Math.max(nameBlockW, nameBlockW + (V.splitGap ?? 0) * s.N) + tPadX;
+    titleTop = blockTop + (V.drop ?? 0.8) * s.N + tPadY;
+  } else {
+    tx = colRight + gap;
+    titleTop = nameTop + N * 0.12;
+  }
+  const ruleX = colRight + gap * 0.5;
+  let x = tx;
   titles.forEach((line, i) => {
-    const chars = [...line].filter((c) => c !== " ");
-    const it = item(ctx, "title", i, chars.join(""), s.titleFont, T, 0, t.titleFill, t.titleAlpha);
-    const h = columnHeight(chars, T, tAdv);
-    it.mode = "v";
-    it.adv = tAdv;
-    it.x = x;
-    it.y = titleTop;
-    it.w = T;
-    it.gx = x;
-    it.gw = T;
-    it.box = { x, y: titleTop, w: T, h };
-    texts.push(it);
-    bottom = Math.max(bottom, titleTop + h);
-    x += T + T * 0.62;
+    const it = columnItem(ctx, "title", i, line, s.titleFont, T, tAdv, t.titleFill, t.titleAlpha, x, titleTop);
+    cols.push(it);
+    x += T + colGap;
   });
-  if (titles.length) x -= T * 0.62;
-  else x = colRight;
-  const w = x + padX;
-  const h = bottom + padY;
+  if (tag && tagMode === "column") {
+    const tz = T * 0.82;
+    const fill = t.tagFill ?? "$accent";
+    const it = HAN.test(tag)
+      ? columnItem(ctx, "tag", 0, tag, font(600, tz, tagFam), tz, tz * 1.22, fill, 1, x + T * 0.12, titleTop)
+      : rotItem(ctx, "tag", tag.toUpperCase(), font(t.tagFont === "mono" ? 500 : 600, tz * 0.92, tagFam), tz * 0.92, tz * 0.1, fill, 1, x + T * 0.12, titleTop);
+    cols.push(it);
+    x += it.box.w + colGap;
+  }
+  texts.push(...cols);
+  const colsBottom = cols.reduce((m, it) => Math.max(m, it.box.y + it.box.h), titleTop);
+  let right: number;
+  if (cols.length) {
+    x -= colGap;
+    if (split) {
+      const bx = nameBlockW + (V.splitGap ?? 0) * s.N;
+      regions.title = { x: bx, y: titleTop - tPadY, w: x - bx + tPadX, h: colsBottom - titleTop + tPadY * 2 };
+      right = Math.max(nameBlockW, x + tPadX);
+      bottom = Math.max(bottom + padY, colsBottom + tPadY);
+    } else {
+      regions.title = { x: tx - T * 0.3, y: titleTop - T * 0.3, w: x - tx + T * 0.6, h: colsBottom - titleTop + T * 0.6 };
+      right = x + padX;
+      bottom = Math.max(bottom, colsBottom);
+    }
+  } else {
+    right = split ? nameBlockW : colRight + padX;
+    if (split) bottom += padY;
+  }
+  if (regions.lead && !split) right = Math.max(right, regions.lead.x + regions.lead.w + padX);
+
+  let foot: Laid["foot"];
+  if (V.foot) {
+    const fy = bottom + N * 0.34;
+    foot = { x0: padX, x1: right - padX, y0: fy, y1: fy + V.foot * s.N };
+    bottom = foot.y1;
+  }
+  const h = (split ? bottom : bottom + padY) + (V.tail ?? 0) * s.N;
+  const w = right;
+  if (initial) initial.w = w;
+  regions.plate = { x: 0, y: 0, w, h };
+  if (!divider && cols.length && !split) divider = { x0: ruleX, x1: ruleX, y0: titleTop - T * 0.1, y1: colsBottom + T * 0.1 };
   return {
     spec,
     person: p,
     w,
     h,
     vertical: true,
-    regions: { plate: { x: 0, y: 0, w, h } },
+    regions,
     texts,
-    textX0: padX,
-    textX1: x,
-    nameX0: padX,
-    nameX1: padX + N,
-    ruleX: titles.length ? ruleX : undefined,
+    textX0: x0,
+    textX1: cols.length ? x : colRight,
+    nameX0: x0,
+    nameX1: x0 + N,
+    ruleX: cols.length && !split ? ruleX : undefined,
     ruleY0: padY * 0.6,
     ruleY1: h - padY * 0.6,
+    spanY0: nameTop,
+    spanY1: Math.max(colsBottom, nameTop + nameH),
+    divider,
     seal,
+    dot,
+    initial,
+    foot,
   };
 }
 
-function layoutOf(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, cfg: RenderConfig, vertical: boolean): Laid {
+function layoutOf(
+  ctx: CanvasRenderingContext2D,
+  spec: TemplateSpec,
+  person: Person,
+  cfg: RenderConfig,
+  vertical: boolean,
+  index = 0,
+): Laid {
+  // the serial template numbers guests 01, 02 … unless a tag says otherwise
+  const p =
+    spec.layout.lead === "serial" && !(person.tag ?? "").trim() ? { ...person, tag: String(index + 1).padStart(2, "0") } : person;
   const s = sizesOf(spec, cfg, p);
-  if (vertical) return layoutColumn(ctx, spec, p, s);
+  if (vertical) return layoutVertical(ctx, spec, p, s);
   switch (spec.layout.kind) {
     case "inline":
       return layoutInline(ctx, spec, p, s);
@@ -991,7 +1229,7 @@ function layoutOf(ctx: CanvasRenderingContext2D, spec: TemplateSpec, p: Person, 
     case "blocks":
       return layoutBlocks(ctx, spec, p, s);
     case "column":
-      return layoutColumn(ctx, spec, p, s);
+      return layoutVertical(ctx, spec, p, s);
     default:
       return layoutStack(ctx, spec, p, s);
   }
@@ -1182,6 +1420,34 @@ function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, rad: number) {
   ctx.closePath();
 }
 
+/** Vertical parallelogram: top and bottom edges slant (run = k × width). */
+function skewPathV(ctx: CanvasRenderingContext2D, r: Rect, k: number) {
+  const run = k * r.w;
+  ctx.beginPath();
+  ctx.moveTo(r.x, r.y + run);
+  ctx.lineTo(r.x + r.w, r.y);
+  ctx.lineTo(r.x + r.w, r.y + r.h - run);
+  ctx.lineTo(r.x, r.y + r.h);
+  ctx.closePath();
+}
+
+/**
+ * Draw a "lengthwise" plate shape (brush, ribbon) designed for a horizontal
+ * band. Vertical plates rotate the frame 90° so the stroke runs top → bottom
+ * and its own fade stops follow the column.
+ */
+function alongPlate(ctx: CanvasRenderingContext2D, r: Rect, vertical: boolean, fn: (r: Rect) => void) {
+  if (!vertical) {
+    fn(r);
+    return;
+  }
+  ctx.save();
+  ctx.translate(r.x + r.w, r.y);
+  ctx.rotate(Math.PI / 2);
+  fn({ x: 0, y: 0, w: r.h, h: r.w });
+  ctx.restore();
+}
+
 function skewPath(ctx: CanvasRenderingContext2D, r: Rect, k: number) {
   const run = k * r.h;
   ctx.beginPath();
@@ -1212,7 +1478,8 @@ function revealPlate(ctx: CanvasRenderingContext2D, laid: Laid, r: Rect, p: numb
   if (p >= 0.999) return;
   if (kind === "wipe") {
     ctx.beginPath();
-    ctx.rect(r.x - 40, r.y - 40, (r.w + 80) * p, r.h + 80);
+    if (laid.vertical) ctx.rect(r.x - 40, r.y - 40, r.w + 80, (r.h + 80) * p);
+    else ctx.rect(r.x - 40, r.y - 40, (r.w + 80) * p, r.h + 80);
     ctx.clip();
     ctx.globalAlpha *= clamp(p * 4);
   } else if (kind === "rise") {
@@ -1221,8 +1488,8 @@ function revealPlate(ctx: CanvasRenderingContext2D, laid: Laid, r: Rect, p: numb
   } else if (kind === "pop") {
     // springy scale from the block's outer-left centre, slight overshoot
     const sc = 0.5 + 0.5 * easeBack(p);
-    const cx = r.x;
-    const cy = r.y + r.h / 2;
+    const cx = laid.vertical ? r.x + r.w / 2 : r.x;
+    const cy = laid.vertical ? r.y : r.y + r.h / 2;
     ctx.translate(cx, cy);
     ctx.scale(sc, sc);
     ctx.translate(-cx, -cy);
@@ -1297,7 +1564,15 @@ function drawPlateLayer(
 
   switch (layer.kind) {
     case "rect": {
-      const rad = layer.pill ? r.h / 2 : (layer.radius ?? 0);
+      const rad = layer.pill ? Math.min(r.h, r.w) / 2 : (layer.radius ?? 0);
+      if (layer.drop) {
+        ctx.save();
+        ctx.translate(layer.drop * 0.7, layer.drop);
+        roundRectPath(ctx, r, rad);
+        ctx.fillStyle = "rgba(12,12,22,0.5)";
+        ctx.fill();
+        ctx.restore();
+      }
       if (layer.shadow) {
         ctx.save();
         shadowOn(ctx, layer.shadow);
@@ -1310,6 +1585,13 @@ function drawPlateLayer(
         roundRectPath(ctx, r, rad);
         ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
         ctx.fill();
+      }
+      if (layer.outline) {
+        roundRectPath(ctx, r, rad);
+        ctx.strokeStyle = css(resolveRGBA(layer.outline, pal));
+        ctx.lineWidth = layer.outlineWidth ?? 2;
+        ctx.lineJoin = "round";
+        ctx.stroke();
       }
       break;
     }
@@ -1330,9 +1612,25 @@ function drawPlateLayer(
       break;
     }
     case "skew": {
-      skewPath(ctx, r, layer.skew);
+      const path = () => (laid.vertical ? skewPathV(ctx, r, layer.skew) : skewPath(ctx, r, layer.skew));
+      if (layer.drop) {
+        ctx.save();
+        ctx.translate(layer.drop * 0.7, layer.drop);
+        path();
+        ctx.fillStyle = "rgba(12,12,22,0.5)";
+        ctx.fill();
+        ctx.restore();
+      }
+      path();
       ctx.fillStyle = fillStyleOf(ctx, layer.fill, pal, r, unfade);
       ctx.fill();
+      if (layer.outline) {
+        path();
+        ctx.strokeStyle = css(resolveRGBA(layer.outline, pal));
+        ctx.lineWidth = layer.outlineWidth ?? 2;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      }
       break;
     }
     case "glass": {
@@ -1422,7 +1720,23 @@ function drawPlateLayer(
       break;
     }
     case "brush": {
-      drawBrush(ctx, r, layer.fill, pal, unfade, laid.person.name);
+      alongPlate(ctx, r, laid.vertical, (rr) => drawBrush(ctx, rr, layer.fill, pal, unfade, laid.person.name));
+      break;
+    }
+    case "strips": {
+      drawStrips(ctx, layer, laid, pal, m);
+      break;
+    }
+    case "ribbon": {
+      alongPlate(ctx, r, laid.vertical, (rr) => drawRibbon(ctx, rr, layer, pal, m, laid.person.name));
+      break;
+    }
+    case "metal": {
+      drawMetal(ctx, r, layer, pal, laid.vertical, laid.person.name);
+      break;
+    }
+    case "mountains": {
+      drawMountains(ctx, laid, layer, pal, laid.person.name);
       break;
     }
     case "paper": {
@@ -1534,6 +1848,269 @@ function drawBrush(ctx: CanvasRenderingContext2D, r: Rect, fill: Fill, pal: Pal,
   ctx.restore();
 }
 
+/** Soft strip behind each title line; reveals with that line's own stagger (朱条). */
+function drawStrips(
+  ctx: CanvasRenderingContext2D,
+  layer: Extract<PlateLayer, { kind: "strips" }>,
+  laid: Laid,
+  pal: Pal,
+  m: Motion,
+) {
+  const fill = layer.fill;
+  const c = fill.kind === "solid" ? resolveRGBA(fill.color, pal) : resolveRGBA(fill.stops[0][1], pal);
+  const a0 = fill.kind === "solid" ? (fill.alpha ?? 1) : (fill.stops[0][2] ?? 1);
+  const v = laid.vertical;
+  for (const t of laid.texts) {
+    if (t.kind !== "title") continue;
+    const pi = m.cut ? 1 : clamp(m.title(t.index) * 1.15);
+    if (pi <= 0.001) continue;
+    const pad = layer.pad * t.size;
+    const r: Rect = v
+      ? { x: t.box.x - pad, y: t.box.y - t.size * 0.55, w: t.box.w + pad * 2, h: t.box.h + t.size * 2.6 }
+      : { x: t.box.x - t.size * 0.55, y: t.box.y - pad, w: t.box.w + t.size * 2.8, h: t.box.h + pad * 2 };
+    const len = v ? r.h : r.w;
+    const g = v ? ctx.createLinearGradient(0, r.y, 0, r.y + r.h) : ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+    const lead = Math.min(0.1, (t.size * 0.45) / len);
+    const from = Math.max(lead + 0.05, 1 - (t.size * 2.4) / len);
+    g.addColorStop(0, css(c, 0));
+    for (let i = 1; i <= 4; i++) g.addColorStop((lead * i) / 4, css(c, a0 * smoother(i / 4)));
+    const n = 12;
+    for (let i = 0; i <= n; i++) g.addColorStop(from + (1 - from) * (i / n), css(c, a0 * (1 - smoother(i / n))));
+    ctx.save();
+    ctx.beginPath();
+    if (v) ctx.rect(r.x - 4, r.y - 4, r.w + 8, (r.h + 8) * pi);
+    else ctx.rect(r.x - 4, r.y - 4, (r.w + 8) * pi, r.h + 8);
+    ctx.clip();
+    ctx.fillStyle = g;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.restore();
+  }
+}
+
+/**
+ * Silk ribbon: a band whose two edges wave out of phase (so it seems to
+ * twist), deep-red edges, a lifted centre, fold shading and a few satin
+ * highlights. Drawn in a horizontal frame; the plate fade takes the tail.
+ */
+function drawRibbon(
+  ctx: CanvasRenderingContext2D,
+  r: Rect,
+  layer: Extract<PlateLayer, { kind: "ribbon" }>,
+  pal: Pal,
+  m: Motion,
+  seed: string,
+) {
+  const c = resolveRGBA(layer.color, pal);
+  const d = resolveRGBA(layer.deep, pal);
+  const rnd = rng(hashStr(seed) + 31);
+  const ph = rnd() * 6 + m.local * 0.35;
+  const steps = 110;
+  const top: [number, number][] = [];
+  const bot: [number, number][] = [];
+  const mid: [number, number][] = [];
+  const cy = r.y + r.h / 2;
+  const amp = r.h * 0.07;
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const x = r.x + r.w * u;
+    const body = (u < 0.07 ? 0.62 + (u / 0.07) * 0.38 : u > 0.55 ? 1 - (u - 0.55) * 0.6 : 1) * r.h * 0.5;
+    const wave = Math.sin(u * 5.2 + ph) * amp + Math.sin(u * 11 + ph * 1.7) * amp * 0.22;
+    const twist = Math.sin(u * 3.1 + ph * 0.8) * 0.1;
+    top.push([x, cy + wave - body * (1 + twist)]);
+    bot.push([x, cy + wave + body * (1 - twist)]);
+    mid.push([x, cy + wave]);
+  }
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(top[0][0], top[0][1]);
+    top.forEach(([x, y], i) => i && ctx.lineTo(x, y));
+    for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]);
+    ctx.bezierCurveTo(r.x - r.h * 0.12, bot[0][1] - r.h * 0.15, r.x - r.h * 0.12, top[0][1] + r.h * 0.15, top[0][0], top[0][1]);
+    ctx.closePath();
+  };
+  ctx.save();
+  shadowOn(ctx, 0.35);
+  path();
+  const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+  g.addColorStop(0, css(d));
+  g.addColorStop(0.28, css(c));
+  g.addColorStop(0.5, css(mix(c, WHITE, 0.1)));
+  g.addColorStop(0.74, css(c));
+  g.addColorStop(1, css(d));
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  path();
+  ctx.clip();
+  // fold shading: soft darker bands across the ribbon
+  const fold = ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+  for (let i = 0; i <= 24; i++) {
+    const u = i / 24;
+    const a = Math.max(0, Math.sin(u * 13 + ph * 1.3)) ** 2 * 0.26;
+    fold.addColorStop(u, css(d, a));
+  }
+  ctx.fillStyle = fold;
+  ctx.fillRect(r.x - 20, r.y - 20, r.w + 40, r.h + 40);
+  // satin highlights following the wave
+  ctx.lineCap = "round";
+  const hl = mix(c, WHITE, 0.55);
+  [-0.22, 0.06, 0.3].forEach((k, j) => {
+    ctx.beginPath();
+    mid.forEach(([x, y], i) => {
+      const yy = y + k * r.h + Math.sin((i / steps) * 7 + ph + j) * r.h * 0.05;
+      if (i) ctx.lineTo(x, yy);
+      else ctx.moveTo(x, yy);
+    });
+    const sg = ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+    sg.addColorStop(0, css(hl, 0));
+    sg.addColorStop(0.12 + j * 0.08, css(hl, 0.22 - j * 0.04));
+    sg.addColorStop(0.6, css(hl, 0.06));
+    sg.addColorStop(1, css(hl, 0));
+    ctx.strokeStyle = sg;
+    ctx.lineWidth = r.h * (0.05 - j * 0.01);
+    ctx.shadowColor = css(hl, 0.4);
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+  });
+  ctx.restore();
+  // a warm hairline along the upper edge
+  ctx.save();
+  ctx.beginPath();
+  top.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + 0.8) : ctx.moveTo(x, y + 0.8)));
+  const eg = ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+  eg.addColorStop(0, "rgba(255,214,150,0.55)");
+  eg.addColorStop(0.6, "rgba(255,214,150,0.2)");
+  eg.addColorStop(1, "rgba(255,214,150,0)");
+  ctx.strokeStyle = eg;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Brushed metal bar: bevelled cross-gradient, fine brush lines, soft specular. */
+function drawMetal(
+  ctx: CanvasRenderingContext2D,
+  r: Rect,
+  layer: Extract<PlateLayer, { kind: "metal" }>,
+  pal: Pal,
+  vertical: boolean,
+  seed: string,
+) {
+  const rad = layer.radius;
+  const tones: [number, RGBA][] =
+    layer.tone === "gold"
+      ? [
+          [0, mix(pal.accent, WHITE, 0.55)],
+          [0.12, mix(pal.accent, WHITE, 0.28)],
+          [0.5, pal.accent],
+          [0.56, mix(pal.accent, BLACK, 0.1)],
+          [0.9, mix(pal.accent, WHITE, 0.22)],
+          [1, mix(pal.accent, BLACK, 0.25)],
+        ]
+      : [
+          [0, parseColor("#F8F9FB")],
+          [0.12, parseColor("#E1E4E8")],
+          [0.5, parseColor("#C6CAD0")],
+          [0.56, parseColor("#B8BDC4")],
+          [0.9, parseColor("#D8DBDF")],
+          [1, parseColor("#A2A8B0")],
+        ];
+  const across = vertical
+    ? ctx.createLinearGradient(r.x, 0, r.x + r.w, 0)
+    : ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+  tones.forEach(([t, c]) => across.addColorStop(t, css(c)));
+  ctx.save();
+  shadowOn(ctx, 0.45);
+  roundRectPath(ctx, r, rad);
+  ctx.fillStyle = across;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  roundRectPath(ctx, r, rad);
+  ctx.clip();
+  const rnd = rng(hashStr(seed) + 7);
+  const thick = vertical ? r.w : r.h;
+  const len = vertical ? r.h : r.w;
+  for (let i = 0; i < 170; i++) {
+    const o = rnd() * thick;
+    const a = 0.025 + rnd() * 0.06;
+    const lw = 0.5 + rnd() * 0.9;
+    const s0 = rnd() * len * 0.3 - len * 0.1;
+    const l = len * (0.5 + rnd() * 0.8);
+    ctx.fillStyle = i % 2 ? `rgba(255,255,255,${a.toFixed(3)})` : `rgba(0,0,0,${(a * 0.7).toFixed(3)})`;
+    if (vertical) ctx.fillRect(r.x + o, r.y + s0, lw, l);
+    else ctx.fillRect(r.x + s0, r.y + o, l, lw);
+  }
+  // broad soft specular along the bar
+  const sp = vertical ? ctx.createLinearGradient(0, r.y, 0, r.y + r.h) : ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+  sp.addColorStop(0, "rgba(255,255,255,0)");
+  sp.addColorStop(0.28, "rgba(255,255,255,0.2)");
+  sp.addColorStop(0.62, "rgba(255,255,255,0)");
+  sp.addColorStop(1, "rgba(255,255,255,0.06)");
+  ctx.fillStyle = sp;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  // bevel: bright lip on the lit edge, soft dark lip on the far edge
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  if (vertical) ctx.fillRect(r.x, r.y, 1.2, r.h);
+  else ctx.fillRect(r.x, r.y, r.w, 1.2);
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  if (vertical) ctx.fillRect(r.x + r.w - 1.2, r.y, 1.2, r.h);
+  else ctx.fillRect(r.x, r.y + r.h - 1.2, r.w, 1.2);
+  ctx.restore();
+}
+
+/** Layered ink-wash ridges with misty feet (金墨山水). */
+function drawMountains(
+  ctx: CanvasRenderingContext2D,
+  laid: Laid,
+  layer: Extract<PlateLayer, { kind: "mountains" }>,
+  pal: Pal,
+  seed: string,
+) {
+  const c = resolveRGBA(layer.color, pal);
+  const W = laid.w;
+  const H = laid.h;
+  const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+  const v = laid.vertical;
+  const x0 = v ? -N * 0.3 : W * 0.3;
+  const x1 = v ? W + N * 0.3 : W + N * 0.6;
+  const base = H + N * 0.1;
+  const maxH = v ? N * 1.6 : H * 0.8;
+  const rnd = rng(hashStr(seed) + 211);
+  const layers: [number, number][] = [
+    [1, 0.16],
+    [0.74, 0.24],
+    [0.5, 0.34],
+  ];
+  layers.forEach(([hk, a]) => {
+    const f1 = 4 + rnd() * 5;
+    const f2 = 9 + rnd() * 9;
+    const p1 = rnd() * 6;
+    const p2 = rnd() * 6;
+    ctx.beginPath();
+    ctx.moveTo(x0, base);
+    const n = 70;
+    let peak = base;
+    for (let i = 0; i <= n; i++) {
+      const u = i / n;
+      const env = smoother(u / 0.22) * (1 - smoother((u - 0.72) / 0.28));
+      const hgt = maxH * hk * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(u * f1 + p1))) * (0.7 + 0.3 * Math.sin(u * f2 + p2)) * env;
+      const y = base - hgt;
+      peak = Math.min(peak, y);
+      ctx.lineTo(x0 + (x1 - x0) * u, y);
+    }
+    ctx.lineTo(x1, base);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, peak, 0, base);
+    g.addColorStop(0, css(c, a));
+    g.addColorStop(0.55, css(c, a * 0.45));
+    g.addColorStop(1, css(c, 0));
+    ctx.fillStyle = g;
+    ctx.fill();
+  });
+}
+
 function textBounds(laid: Laid): Rect {
   let x0 = Infinity;
   let y0 = Infinity;
@@ -1565,12 +2142,39 @@ function drawOrnament(
   switch (o.kind) {
     case "rule": {
       if (laid.vertical) {
-        if (laid.ruleX == null) break;
-        const y0 = o.span === "plate" ? (laid.ruleY0 ?? 0) : laid.texts[0]?.box.y ?? 0;
-        const y1 = o.span === "plate" ? (laid.ruleY1 ?? H) : textBounds(laid).y + textBounds(laid).h;
+        if (o.at === "top" || o.at === "bottom") {
+          // a cap across the top / foot of the column
+          const y = o.at === "top" ? o.width / 2 : H - o.width / 2;
+          ctx.fillStyle = paint(ctx, o.color, pal, 0, y, W, y);
+          ctx.fillRect(0, y - o.width / 2, W * p, o.width);
+          break;
+        }
+        let x: number;
+        let y0: number;
+        let y1: number;
+        const side = o.at === "outer" || o.at === "inner";
+        if (side) {
+          x = o.at === "outer" ? o.width / 2 : W - o.width / 2;
+          y0 = 0;
+          y1 = H;
+        } else {
+          if (laid.ruleX == null) break;
+          x = laid.ruleX;
+          y0 = o.span === "plate" ? (laid.ruleY0 ?? 0) : (laid.spanY0 ?? 0);
+          y1 = o.span === "plate" ? (laid.ruleY1 ?? H) : (laid.spanY1 ?? H);
+        }
         const len = (y1 - y0) * p;
-        ctx.fillStyle = paint(ctx, o.color, pal, laid.ruleX, y0, laid.ruleX, y0 + (y1 - y0), 1, !!o.fadeEnd);
-        ctx.fillRect(laid.ruleX - o.width / 2, y0, o.width, len);
+        const pf = o.fadeEnd && (side || o.span === "plate") ? plateFadeOf(laid, laid.spec.vertical.plate) : null;
+        if (pf) {
+          const g = ctx.createLinearGradient(x, y0, x, y1);
+          const [l, mid] = goldStops(pal);
+          const tone = o.color === "$gold" ? mix(l, mid, 0.5) : resolveRGBA(o.color, pal);
+          addFadeStops(g, (a) => css(tone, a), 1, (pf.start - y0) / Math.max(1, y1 - y0));
+          ctx.fillStyle = g;
+        } else {
+          ctx.fillStyle = paint(ctx, o.color, pal, x, y0, x, y1, 1, !!o.fadeEnd);
+        }
+        ctx.fillRect(x - o.width / 2, y0, o.width, len);
         break;
       }
       let x0 = laid.textX0;
@@ -1665,10 +2269,16 @@ function drawOrnament(
     case "divider": {
       const d = laid.divider;
       if (!d) break;
-      const len = (d.y1 - d.y0) * p;
-      const mid = (d.y0 + d.y1) / 2;
-      ctx.fillStyle = paint(ctx, o.color, pal, d.x, d.y0, d.x, d.y1);
-      ctx.fillRect(d.x - o.width / 2, mid - len / 2, o.width, len);
+      const mx = (d.x0 + d.x1) / 2;
+      const my = (d.y0 + d.y1) / 2;
+      ctx.fillStyle = paint(ctx, o.color, pal, d.x0, d.y0, d.x1 + 0.01, d.y1);
+      if (Math.abs(d.x1 - d.x0) < 0.5) {
+        const len = (d.y1 - d.y0) * p;
+        ctx.fillRect(mx - o.width / 2, my - len / 2, o.width, len);
+      } else {
+        const len = (d.x1 - d.x0) * p;
+        ctx.fillRect(mx - len / 2, my - o.width / 2, len, o.width);
+      }
       break;
     }
     case "seal": {
@@ -1733,11 +2343,17 @@ function drawOrnament(
       const nm = laid.texts.find((t) => t.kind === "name");
       if (!nm) break;
       const N = nm.size;
-      const x1 = W - N * 0.42;
-      const x0 = Math.max(laid.textX1 + N * 0.5, x1 - N * 2.2);
+      let x1 = W - N * 0.42;
+      let x0 = Math.max(laid.textX1 + N * 0.5, x1 - N * 2.2);
+      let top = nm.box.y + N * 0.05;
+      let bot = nm.box.y + N * 0.85;
+      if (laid.foot) {
+        x0 = laid.foot.x0;
+        x1 = laid.foot.x1;
+        top = laid.foot.y0;
+        bot = laid.foot.y1;
+      } else if (laid.vertical) break;
       if (x1 - x0 < N * 0.8) break;
-      const top = nm.box.y + N * 0.05;
-      const bot = nm.box.y + N * 0.85;
       const c = resolveRGBA(o.color, pal);
       const vals = [0.35, 0.42, 0.3, 0.5, 0.46, 0.62, 0.55, 0.7, 0.64, 0.82, 0.76, 0.95];
       const pts = vals.map((v, i) => [x0 + ((x1 - x0) * i) / (vals.length - 1), bot - (bot - top) * v] as [number, number]);
@@ -1870,10 +2486,11 @@ function drawOrnament(
       const r = laid.regions.name;
       if (!r) break;
       const c = resolveRGBA(o.color, pal);
+      const u = Math.min(r.w, r.h);
       const stars: [number, number, number, number][] = [
-        [r.x + r.w - r.h * 0.18, r.y - r.h * 0.08, r.h * 0.2, 0],
-        [r.x + r.w + r.h * 0.12, r.y + r.h * 0.2, r.h * 0.11, 1.3],
-        [r.x + r.w - r.h * 0.55, r.y - r.h * 0.2, r.h * 0.08, 2.4],
+        [r.x + r.w - u * 0.18, r.y - u * 0.08, u * 0.2, 0],
+        [r.x + r.w + u * 0.12, r.y + u * 0.2, u * 0.11, 1.3],
+        [r.x + r.w - u * 0.55, r.y - u * 0.2, u * 0.08, 2.4],
       ];
       for (const [x, y, size, ph] of stars) {
         const tw = 0.75 + 0.25 * Math.sin(m.local * 3.2 + ph);
@@ -1898,6 +2515,259 @@ function drawOrnament(
       }
       break;
     }
+    case "disc": {
+      const nm = laid.texts.find((t) => t.kind === "name");
+      if (!nm) break;
+      let cx: number;
+      let cy: number;
+      if (nm.mode === "v") {
+        cx = nm.box.x + nm.box.w / 2;
+        cy = nm.box.y + nm.size * 0.5;
+      } else {
+        ctx.font = nm.font;
+        const cw = ctx.measureText([...nm.text][0] ?? "").width;
+        cx = flip ? nm.gx + nm.gw - (nm.x - nm.gx) - cw / 2 : nm.x + cw / 2;
+        cy = nm.box.y + nm.size * 0.46;
+      }
+      const R = nm.size * 0.84;
+      cx -= R * 0.14;
+      cy -= R * 0.06;
+      const sp = clamp(p * 1.15);
+      const sc = 0.72 + 0.28 * easeBack(sp);
+      ctx.globalAlpha *= clamp(sp * 1.6);
+      ctx.translate(cx, cy);
+      ctx.scale(sc, sc);
+      const c = resolveRGBA(o.color, pal);
+      const c2 = resolveRGBA(o.color2, pal);
+      const g = ctx.createRadialGradient(-R * 0.25, -R * 0.3, 0, 0, 0, R);
+      g.addColorStop(0, css(c2));
+      g.addColorStop(0.62, css(c));
+      g.addColorStop(0.86, css(c, 0.95));
+      g.addColorStop(0.94, css(c, 0.45));
+      g.addColorStop(1, css(c, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, R, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "beam": {
+      const c = resolveRGBA(o.color, pal);
+      const hot = mix(c, WHITE, 0.4);
+      const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+      let ax0: number;
+      let ay0: number;
+      let ax1: number;
+      let ay1: number;
+      if (laid.vertical) {
+        const x = laid.ruleX ?? laid.nameX1 + N * 0.3;
+        ax0 = ax1 = x;
+        ay0 = -N * 0.5;
+        ay1 = H + N * 0.7;
+      } else {
+        const y = laid.ruleY ?? H / 2;
+        ay0 = ay1 = y;
+        ax0 = -N * 0.35;
+        ax1 = W + N * 1.2;
+      }
+      const L = Math.hypot(ax1 - ax0, ay1 - ay0);
+      const env = (u: number) => smoother(u / 0.16) * (1 - smoother((u - 0.42) / 0.58));
+      const g = ctx.createLinearGradient(ax0, ay0, ax1, ay1);
+      for (let i = 0; i <= 20; i++) g.addColorStop(i / 20, css(hot, env(i / 20)));
+      ctx.save();
+      ctx.beginPath();
+      if (laid.vertical) ctx.rect(ax0 - 30, ay0, 60, L * p);
+      else ctx.rect(ax0, ay0 - 30, L * p, 60);
+      ctx.clip();
+      ctx.fillStyle = g;
+      ctx.shadowColor = css(c, 0.95);
+      ctx.shadowBlur = 14;
+      const lw = 2;
+      if (laid.vertical) ctx.fillRect(ax0 - lw / 2, ay0, lw, L);
+      else ctx.fillRect(ax0, ay0 - lw / 2, L, lw);
+      ctx.shadowBlur = 5;
+      if (laid.vertical) ctx.fillRect(ax0 - lw / 2, ay0, lw, L);
+      else ctx.fillRect(ax0, ay0 - lw / 2, L, lw);
+      ctx.restore();
+      // drifting particles hugging the beam
+      const rnd = rng(hashStr(laid.person.name) + 5);
+      ctx.shadowColor = css(c, 0.9);
+      ctx.shadowBlur = 6;
+      for (let i = 0; i < 26; i++) {
+        const u0 = rnd();
+        const speed = 0.006 + rnd() * 0.02;
+        const off = (rnd() + rnd() + rnd() - 1.5) * N * 0.42;
+        const size = 0.7 + rnd() * 1.9;
+        const fq = 1 + rnd() * 2.2;
+        const ph = rnd() * 6;
+        const u = (u0 + m.local * speed) % 1;
+        if (u > p) continue;
+        const tw = 0.45 + 0.55 * Math.sin(m.local * fq + ph);
+        const a = env(u) * clamp(tw) * 0.95;
+        if (a < 0.02) continue;
+        const px = laid.vertical ? ax0 + off : ax0 + (ax1 - ax0) * u;
+        const py = laid.vertical ? ay0 + (ay1 - ay0) * u : ay0 + off;
+        ctx.fillStyle = css(mix(c, WHITE, 0.55), a);
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case "flare": {
+      const nm = laid.texts.find((t) => t.kind === "name");
+      if (!nm) break;
+      const N = nm.size;
+      const c = resolveRGBA(o.color, pal);
+      const core = resolveRGBA(o.core, pal);
+      const v = laid.vertical;
+      const cx = v ? nm.box.x + nm.box.w / 2 : laid.nameX0 + (laid.nameX1 - laid.nameX0) * 0.3;
+      const cy = v ? nm.box.y + Math.min(nm.box.h * 0.4, N * 1.4) : nm.box.y + N * 0.5;
+      const sp = easeCubic(p);
+      if (sp < 0.02) break;
+      const half = (v ? H * 0.62 + N : W * 0.6 + N * 1.6) * sp;
+      const shimmer = 0.9 + 0.1 * Math.sin(m.local * 2.3);
+      ctx.translate(cx, cy);
+      if (v) ctx.rotate(Math.PI / 2);
+      const ell = (rx: number, ry: number, stops: [number, RGBA, number][]) => {
+        ctx.save();
+        ctx.scale(rx / ry, 1);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, ry);
+        stops.forEach(([t, col, a]) => g.addColorStop(t, css(col, a * shimmer)));
+        ctx.fillStyle = g;
+        ctx.fillRect(-ry, -ry, ry * 2, ry * 2);
+        ctx.restore();
+      };
+      ell(half, N * 0.6, [
+        [0, c, 0.46],
+        [0.45, c, 0.16],
+        [1, c, 0],
+      ]);
+      ell(half * 1.15, N * 0.1, [
+        [0, mix(core, WHITE, 0.35), 1],
+        [0.35, core, 0.55],
+        [1, c, 0],
+      ]);
+      ell(N * 0.55, N * 0.55, [
+        [0, mix(core, WHITE, 0.5), 0.5],
+        [0.5, core, 0.14],
+        [1, core, 0],
+      ]);
+      // two faint ghost glints along the streak
+      [
+        [half * 0.55, N * 0.1],
+        [-half * 0.38, N * 0.07],
+      ].forEach(([gx, gr]) => {
+        const g = ctx.createRadialGradient(gx, 0, 0, gx, 0, gr);
+        g.addColorStop(0, css(mix(core, WHITE, 0.5), 0.35 * shimmer));
+        g.addColorStop(1, css(core, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(gx - gr, -gr, gr * 2, gr * 2);
+      });
+      break;
+    }
+    case "brackets": {
+      const sz = o.size;
+      const off = (1 - easeCubic(p)) * sz * 0.9;
+      ctx.globalAlpha *= clamp(p * 1.5);
+      ctx.strokeStyle = paint(ctx, o.color, pal, 0, 0, W, H);
+      ctx.lineWidth = o.width;
+      ctx.lineCap = "square";
+      const k = o.width / 2;
+      const corners: [number, number, number, number][] = [
+        [k + off, k + off, 1, 1],
+        [W - k - off, k + off, -1, 1],
+        [W - k - off, H - k - off, -1, -1],
+        [k + off, H - k - off, 1, -1],
+      ];
+      ctx.beginPath();
+      for (const [x, y, dx, dy] of corners) {
+        ctx.moveTo(x, y + dy * sz);
+        ctx.lineTo(x, y);
+        ctx.lineTo(x + dx * sz, y);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "chevrons": {
+      const tr = laid.regions.title ?? laid.regions.name;
+      if (!tr) break;
+      const c = resolveRGBA(o.color, pal);
+      const v = laid.vertical;
+      const sz = Math.min(15, (v ? tr.w : tr.h) * 0.24);
+      for (let k = 0; k < 4; k++) {
+        const ph = (((m.local * 1.4 - k * 0.2) % 1.2) + 1.2) % 1.2;
+        let a = 0.3 + 0.7 * clamp(1 - Math.abs(ph - 0.3) / 0.3);
+        a *= clamp(p * 2 - k * 0.2);
+        if (a <= 0.01) continue;
+        ctx.fillStyle = css(c, a);
+        ctx.beginPath();
+        if (v) {
+          const x = tr.x + tr.w / 2;
+          const y = tr.y + tr.h + sz * 0.9 + k * sz * 1.1;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + sz * 0.55, y + sz * 0.7);
+          ctx.lineTo(x - sz * 0.55, y + sz * 0.7);
+        } else {
+          const x = tr.x + tr.w + sz * 0.6 + k * sz * 1.1;
+          const y = tr.y + tr.h / 2;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + sz * 0.7, y - sz * 0.55);
+          ctx.lineTo(x + sz * 0.7, y + sz * 0.55);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case "rollers": {
+      const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+      const v = laid.vertical;
+      const R = N * 0.3;
+      const over = N * 0.3;
+      const pp = clamp(m.plate);
+      if (pp <= 0.001) break;
+      ctx.globalAlpha *= clamp(pp * 3);
+      const wood = resolveRGBA(o.color, pal);
+      const knob = resolveRGBA(o.knob, pal);
+      const L = v ? H : W;
+      const front = Math.min(L, Math.max(0, -40 + (L + 80) * (m.cut || m.fadeOnly || laid.spec.motion.plate !== "wipe" ? 1 : pp)));
+      const rods = [-R * 0.45, Math.max(front - R * 0.55, R * 0.6)];
+      for (const at of rods) {
+        const rod: Rect = v ? { x: -over, y: at, w: W + over * 2, h: R } : { x: at, y: -over, w: R, h: H + over * 2 };
+        const g = v ? ctx.createLinearGradient(0, rod.y, 0, rod.y + rod.h) : ctx.createLinearGradient(rod.x, 0, rod.x + rod.w, 0);
+        g.addColorStop(0, css(mix(wood, BLACK, 0.35)));
+        g.addColorStop(0.35, css(mix(wood, WHITE, 0.22)));
+        g.addColorStop(0.6, css(wood));
+        g.addColorStop(1, css(mix(wood, BLACK, 0.45)));
+        ctx.save();
+        shadowOn(ctx, 0.4);
+        roundRectPath(ctx, rod, R * 0.3);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.restore();
+        // gilt end caps
+        const caps: Rect[] = v
+          ? [
+              { x: rod.x - R * 0.42, y: rod.y - R * 0.12, w: R * 0.5, h: R * 1.24 },
+              { x: rod.x + rod.w - R * 0.08, y: rod.y - R * 0.12, w: R * 0.5, h: R * 1.24 },
+            ]
+          : [
+              { x: rod.x - R * 0.12, y: rod.y - R * 0.42, w: R * 1.24, h: R * 0.5 },
+              { x: rod.x - R * 0.12, y: rod.y + rod.h - R * 0.08, w: R * 1.24, h: R * 0.5 },
+            ];
+        for (const cp of caps) {
+          const kg = v ? ctx.createLinearGradient(0, cp.y, 0, cp.y + cp.h) : ctx.createLinearGradient(cp.x, 0, cp.x + cp.w, 0);
+          kg.addColorStop(0, css(mix(knob, BLACK, 0.3)));
+          kg.addColorStop(0.4, css(mix(knob, WHITE, 0.35)));
+          kg.addColorStop(1, css(mix(knob, BLACK, 0.35)));
+          roundRectPath(ctx, cp, R * 0.22);
+          ctx.fillStyle = kg;
+          ctx.fill();
+        }
+      }
+      break;
+    }
     case "flow": {
       const c = resolveRGBA(o.color, pal);
       const cut = laid.spec.plate.find((l) => l.kind === "chamfer");
@@ -1913,8 +2783,25 @@ function drawOrnament(
       ctx.stroke();
       ctx.fillStyle = css(c);
       ctx.fillRect(0, 0, o.width * 1.6, H * p);
-      // travelling highlight
-      if (p > 0.98) {
+      // travelling highlight (vertical plates: down the outer edge)
+      if (p > 0.98 && laid.vertical) {
+        const phase = ((m.local * 0.42) % 1 + 1) % 1;
+        const seg = Math.max(H * 0.2, 90);
+        const y = -seg + phase * (H + seg * 2);
+        const g = ctx.createLinearGradient(0, y - seg / 2, 0, y + seg / 2);
+        g.addColorStop(0, css(c, 0));
+        g.addColorStop(0.5, css(mix(c, WHITE, 0.55)));
+        g.addColorStop(1, css(c, 0));
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-6, 0, 14, H);
+        ctx.clip();
+        ctx.shadowColor = css(c, 0.9);
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = g;
+        ctx.fillRect(0, y - seg / 2, o.width * 1.6 + 0.5, seg);
+        ctx.restore();
+      } else if (p > 0.98) {
         const phase = ((m.local * 0.42) % 1 + 1) % 1;
         const seg = Math.max(W * 0.22, 90);
         const x = -seg + phase * (W - cutPx + seg * 2);
@@ -1956,7 +2843,9 @@ function drawFrontOrnament(
     if (!ini || p <= 0.001) return;
     const latin = /[A-Z]/.test(ini.ch);
     const fam = latin ? EN_FONTS.serif : '"Noto Serif SC", "Songti SC", serif';
-    let size = H * (latin ? 1.22 : 0.98);
+    const hy = ini.y ?? 0;
+    const hh = ini.h ?? H;
+    let size = hh * (latin ? 1.22 : 0.98);
     ctx.save();
     ctx.font = font(latin ? 600 : 700, size, fam);
     const mw = ctx.measureText(ini.ch).width;
@@ -1967,15 +2856,15 @@ function drawFrontOrnament(
     const x = flip ? W - lx - gw : lx;
     // cropped by the plate: the letter bleeds off the top/bottom edges
     ctx.beginPath();
-    ctx.rect(0, 0, W, H);
+    ctx.rect(0, hy, W, hh);
     ctx.clip();
     ctx.beginPath();
-    ctx.rect(x - 20, 0, gw + 40, H * clamp(p * 1.1));
+    ctx.rect(x - 20, hy, gw + 40, hh * clamp(p * 1.1));
     ctx.clip();
     ctx.globalAlpha *= clamp(p * 1.6);
     ctx.fillStyle = css(resolveRGBA(o.color, pal));
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(ini.ch, x, latin ? H * 0.5 + size * 0.36 : H * 0.5 + size * 0.36);
+    ctx.fillText(ini.ch, x, hy + hh * 0.5 + size * 0.36);
     ctx.restore();
     return;
   }
@@ -1987,6 +2876,15 @@ function drawFrontOrnament(
     if (p < 0.98) return;
     if (Math.floor(m.local * 1.8) % 2 === 1) return;
     const sz = last.size;
+    if (last.mode === "v" || last.mode === "rot") {
+      // a flat block cursor under the last column
+      const bx = flip ? W - last.box.x - last.box.w : last.box.x;
+      ctx.save();
+      ctx.fillStyle = css(resolveRGBA(o.color, pal), 0.9);
+      ctx.fillRect(bx + last.box.w * 0.08, last.box.y + last.box.h + sz * 0.22, last.box.w * 0.84, sz * 0.36);
+      ctx.restore();
+      return;
+    }
     const cw = sz * 0.5;
     const lx = last.x + last.w + sz * 0.25;
     const sx = flip ? W - (last.gx + last.gw) + (last.x - last.gx) + last.w + sz * 0.25 : lx;
@@ -2176,9 +3074,16 @@ function drawSweep(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, flip: b
   ctx.rect(0, 0, W, H);
   ctx.clip();
   ctx.globalCompositeOperation = "source-atop";
-  const band = Math.max(W * 0.18, 110);
-  const cx = -band + s * (W + band * 2);
-  const g = ctx.createLinearGradient(cx - band, 0, cx + band, H * 0.5);
+  let g: CanvasGradient;
+  if (laid.vertical) {
+    const band = Math.max(H * 0.16, 110);
+    const cy = -band + s * (H + band * 2);
+    g = ctx.createLinearGradient(0, cy - band, W * 0.5, cy + band);
+  } else {
+    const band = Math.max(W * 0.18, 110);
+    const cx = -band + s * (W + band * 2);
+    g = ctx.createLinearGradient(cx - band, 0, cx + band, H * 0.5);
+  }
   g.addColorStop(0, "rgba(255,255,255,0)");
   g.addColorStop(0.5, `rgba(255,255,255,${peak.toFixed(3)})`);
   g.addColorStop(1, "rgba(255,255,255,0)");
@@ -2218,35 +3123,51 @@ function withLayer(
 /* ------------------------------------------------------------ plate fade */
 
 interface PlateFade {
-  /** local x (outer edge = 0) where the fade begins */
+  /** local coordinate along the plate (outer edge = 0) where the fade begins */
   start: number;
-  /** local x where the plate reaches alpha 0 (the plate's inner end) */
+  /** where the plate reaches alpha 0 (the plate's inner / bottom end) */
   end: number;
+  axis: "x" | "y";
+}
+
+/** t along the plate where a layer starts fading out, or -1 when it doesn't fade. */
+function fadeStopOf(l: PlateLayer, vertical: boolean): number {
+  if (l.kind === "ribbon") return 0.55;
+  if (l.kind === "brush") {
+    return fadesOut(l.fill, "x") && l.fill.kind === "linear" ? l.fill.stops[l.fill.stops.length - 2][0] : -1;
+  }
+  if ((l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer") && fadesOut(l.fill, vertical ? "y" : "x") && l.fill.kind === "linear") {
+    return l.fill.stops[l.fill.stops.length - 2][0];
+  }
+  return -1;
 }
 
 /**
- * A plate "fades" when any horizontal layer runs out to transparent at its
- * inner end. Instead of letting every layer fade (or not) on its own — which
- * left hard edges where a sheen layer ran full width — the whole plate group
- * is drawn offscreen and faded by one eased alpha mask.
+ * A plate "fades" when any layer runs out to transparent at its inner end
+ * (horizontal) or its foot (vertical). Instead of letting every layer fade
+ * (or not) on its own — which left hard edges where a sheen layer ran full
+ * length — the whole plate group is drawn offscreen and faded by one eased
+ * alpha mask.
  */
 function plateFadeOf(laid: Laid, layers: PlateLayer[]): PlateFade | null {
-  if (laid.vertical) return null;
   let stopT = -1;
-  for (const l of layers) {
-    if ((l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer" || l.kind === "brush") && fadesOut(l.fill) && l.fill.kind === "linear") {
-      const st = l.fill.stops;
-      stopT = Math.max(stopT, st[st.length - 2][0]);
-    }
-  }
+  for (const l of layers) stopT = Math.max(stopT, fadeStopOf(l, laid.vertical));
   if (stopT < 0) return null;
-  const W = laid.w;
   const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
+  if (laid.vertical) {
+    const L = laid.h;
+    const tb = textBounds(laid);
+    let start = Math.max(stopT * L, tb.y + tb.h - N * 0.1);
+    start = Math.min(start, L - N * 1.4);
+    start = Math.max(start, L * 0.35);
+    return { start, end: L, axis: "y" };
+  }
+  const W = laid.w;
   // keep the type on solid plate, fade over the tail, and never shorter than ~2 em
   let start = Math.max(stopT * W, laid.textX1 - N * 0.2);
   start = Math.min(start, W - N * 2);
   start = Math.max(start, W * 0.35);
-  return { start, end: W };
+  return { start, end: W, axis: "x" };
 }
 
 type Scratch = { cv: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D };
@@ -2306,6 +3227,7 @@ function drawMasked(
   start: number,
   end: number,
   fn: (c: CanvasRenderingContext2D) => void,
+  axis: "x" | "y" = "x",
 ) {
   const box = deviceBox(ctx, bounds);
   if (box.w <= 0 || box.h <= 0) return;
@@ -2328,7 +3250,7 @@ function drawMasked(
   c.restore();
   c.save();
   c.globalCompositeOperation = "destination-in";
-  const g = c.createLinearGradient(start, 0, end, 0);
+  const g = axis === "y" ? c.createLinearGradient(0, start, 0, end) : c.createLinearGradient(start, 0, end, 0);
   addFadeStops(g, (a) => `rgba(0,0,0,${a.toFixed(4)})`, 1, 0);
   c.fillStyle = g;
   c.fillRect(bounds.x - 4, bounds.y - 4, bounds.w + 8, bounds.h + 8);
@@ -2341,8 +3263,8 @@ function drawMasked(
 
 function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pal, flip: boolean, cfg: RenderConfig) {
   const spec = laid.spec;
-  const plateLayers = laid.vertical && spec.vertical ? spec.vertical.plate : spec.plate;
-  const ornaments = laid.vertical && spec.vertical ? spec.vertical.ornaments : spec.ornaments;
+  const plateLayers = laid.vertical ? spec.vertical.plate : spec.plate;
+  const ornaments = laid.vertical ? spec.vertical.ornaments : spec.ornaments;
   const W = laid.w;
   const center = { x: W / 2, y: laid.h / 2 };
   const person = laid.person;
@@ -2377,22 +3299,27 @@ function drawPlate(ctx: CanvasRenderingContext2D, laid: Laid, m: Motion, pal: Pa
       // generous margins so soft shadows are kept (and faded) too
       const bounds: Rect = { x: -60, y: -60, w: laid.w + 120, h: laid.h + 140 };
       const zone = fade.end - fade.start;
-      const isBase = (l: PlateLayer) =>
-        (l.kind === "rect" || l.kind === "skew" || l.kind === "chamfer" || l.kind === "brush") && fadesOut(l.fill);
+      const isBase = (l: PlateLayer) => fadeStopOf(l, laid.vertical) >= 0;
       drawMasked(ctx, 0, bounds, fade.start, fade.end, (c) => {
         paintLayers(c, true, isBase);
         // overlays (sheens, bottom tints) leave the fade zone early, so a dark
         // tint can never turn the fading tail grey on a light background
         if (plateLayers.some((l) => !isBase(l) && l.kind !== "paper")) {
-          drawMasked(c, 1, bounds, fade.start - zone * 0.15, fade.start + zone * 0.5, (c2) =>
-            paintLayers(c2, true, (l) => !isBase(l)),
+          drawMasked(
+            c,
+            1,
+            bounds,
+            fade.start - zone * 0.15,
+            fade.start + zone * 0.5,
+            (c2) => paintLayers(c2, true, (l) => !isBase(l)),
+            fade.axis,
           );
         }
         for (const l of plateLayers) {
           if (l.kind === "paper") drawPlateLayer(c, l, laid, pal, m);
         }
         if (plateSweep) drawSweep(c, laid, m, flip);
-      });
+      }, fade.axis);
     }),
   );
   withLayer(ctx, person, "slash", center, () =>
@@ -2429,8 +3356,8 @@ export function drawPremiumFrame(
   if (!isPremiumId(cfg.style)) return;
   const spec = TEMPLATE_BY_ID[cfg.style];
   const pal = paletteOf(cfg);
-  const vertical = !!spec.nativeVertical || (cfg.orient === "vertical" && !!spec.vertical);
-  const laid = people.map((p) => layoutOf(ctx, spec, p, cfg, vertical));
+  const vertical = !!spec.nativeVertical || cfg.orient === "vertical";
+  const laid = people.map((p, i) => layoutOf(ctx, spec, p, cfg, vertical, i));
   const sideOf = (i: number) =>
     spec.mirrored && i % 2 === 1 ? (cfg.side === "left" ? "right" : "left") : cfg.side;
 
@@ -2521,7 +3448,7 @@ export function drawPremiumFrame(
       const k = (1 - m.scale) / m.scale;
       ctx.translate((s.right ? l.w : 0) * k, l.h * k);
     }
-    drawPlate(ctx, l, m, pal, s.right && !spec.keepOrder, cfg);
+    drawPlate(ctx, l, m, pal, s.right && !(spec.keepOrder && !vertical), cfg);
     ctx.restore();
   }
 }

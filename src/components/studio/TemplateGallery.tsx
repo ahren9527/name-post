@@ -9,7 +9,7 @@ import {
   type StyleCard,
   type VariantKey,
 } from "@/lib/nameplates/presets";
-import { TEMPLATE_CATEGORIES, supportsVertical, type TemplateCategory } from "@/lib/nameplates/premium/spec";
+import { TEMPLATE_CATEGORIES, type TemplateCategory } from "@/lib/nameplates/premium/spec";
 import { useStudio } from "@/lib/nameplates/store";
 import { cn } from "@/lib/utils";
 import { LiveThumb } from "./LiveThumb";
@@ -46,7 +46,6 @@ export function TemplateGallery() {
   const customPresets = useStudio((s) => s.customPresets);
   const people = useStudio((s) => s.people);
   const activePersonId = useStudio((s) => s.activePersonId);
-  const orient = useStudio((s) => s.orient);
   const person = people.find((p) => p.id === activePersonId) ?? people[0];
 
   const list = useMemo(() => {
@@ -148,7 +147,6 @@ export function TemplateGallery() {
               active={style === card.style && (card.variants ? true : accentColor.toLowerCase() === card.accentColor.toLowerCase())}
               activeKey={style === card.style ? activeVariant(card, accentColor) : undefined}
               starred={favorited.includes(card.id)}
-              noVertical={orient === "vertical" && !supportsVertical(card.style)}
               onHover={(on) => setHover((h) => (on ? card.id : h === card.id ? null : h))}
               onApply={apply}
             />
@@ -220,7 +218,6 @@ const GalleryCard = memo(function GalleryCard({
   active,
   activeKey,
   starred,
-  noVertical,
   onHover,
   onApply,
 }: {
@@ -230,7 +227,6 @@ const GalleryCard = memo(function GalleryCard({
   active: boolean;
   activeKey: VariantKey | undefined;
   starred: boolean;
-  noVertical: boolean;
   onHover: (on: boolean) => void;
   onApply: (card: StyleCard) => void;
 }) {
@@ -256,11 +252,6 @@ const GalleryCard = memo(function GalleryCard({
         {active ? (
           <span className="absolute top-2 left-2 flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground shadow">
             <Check className="size-3" strokeWidth={3} />
-          </span>
-        ) : null}
-        {noVertical ? (
-          <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/80 backdrop-blur">
-            仅横版
           </span>
         ) : null}
       </button>

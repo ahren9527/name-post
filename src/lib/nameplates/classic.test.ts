@@ -54,6 +54,6 @@ test("colourways apply refined colours and legacy accents resolve to them", () =
 });
 
 test("flagship cards are untouched by the classic merge", () => {
-  assert.equal(PREMIUM_CARDS.length, 24);
+  assert.equal(PREMIUM_CARDS.length, 36);
   for (const c of PREMIUM_CARDS) assert.equal(c.variants, undefined);
 });

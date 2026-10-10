@@ -49,7 +49,19 @@ export type NameplateStyle =
   | "ink"
   | "neon"
   | "applewhite"
-  | "govred";
+  | "govred"
+  | "redsun"
+  | "strips"
+  | "lightline"
+  | "silk"
+  | "techblue"
+  | "viewfinder"
+  | "goldink"
+  | "comic"
+  | "flare"
+  | "metal"
+  | "serial"
+  | "scroll";
 export type LayoutMode = "stack" | "sequence";
 export type Side = "left" | "right";
 export type Orient = "horizontal" | "vertical";
@@ -166,6 +178,18 @@ export const STYLE_META: Record<
   neon: { label: "赛博霓虹", caption: "霓虹描边 · 辉光 · 闪烁点亮" },
   applewhite: { label: "发布会白", caption: "白色圆角卡 · 黑灰字 · 极简" },
   govred: { label: "政务庄重", caption: "中国红底 · 金色回纹 · 对称" },
+  redsun: { label: "朱日题名", caption: "朱红圆日衬姓 · 宋体 · 无底板" },
+  strips: { label: "朱条题名", caption: "每行职务一条红底 · 渐隐收尾" },
+  lightline: { label: "光线粒子", caption: "发光细线 · 粒子漂浮 · 无底板" },
+  silk: { label: "红绸飘带", caption: "飘逸红绸衬底 · 金白字" },
+  techblue: { label: "科技蓝条", caption: "蓝色斜切光条 · 箭头律动" },
+  viewfinder: { label: "取景框", caption: "四角取景框 · 录制红点 · 现场感" },
+  goldink: { label: "金墨山水", caption: "鎏金楷书 · 远山水墨 · 无底板" },
+  comic: { label: "漫画贴纸", caption: "描边贴纸 · 撞色 · 弹跳" },
+  flare: { label: "流光光晕", caption: "镜头光晕横扫 · 暖金大字" },
+  metal: { label: "金属拉丝", caption: "银色拉丝金属条 · 斜光扫过" },
+  serial: { label: "编号极简", caption: "大号编号 · 细线 · 系列访谈" },
+  scroll: { label: "卷轴", caption: "宣纸卷轴 · 木轴展开 · 朱印" },
 };
 
 export function isColumnStyle(orient: Orient) {
