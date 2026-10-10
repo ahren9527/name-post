@@ -75,6 +75,8 @@ export type AnimIn = "none" | "fade" | "up" | "down" | "left" | "right" | "scale
 export type EaseKind = "smooth" | "linear" | "snap" | "expo" | "quint" | "back";
 /** Text legibility treatment. "outline" is the legacy black stroke + halo. */
 export type TextFx = "none" | "soft" | "outline";
+/** 衬底 behind plate-less type: soft hugging shade, nothing, or a clean solid plate. */
+export type TextBacking = "soft" | "none" | "solid";
 
 export type ClipLayer = "name" | "title" | "slash" | "band";
 
@@ -129,6 +131,8 @@ export interface RenderConfig {
   /** One subtle light sweep across the plate during hold (premium templates). */
   sweep: boolean;
   textFx: TextFx;
+  /** 衬底 (plate-less templates + classic styles). Missing = "soft". */
+  backing?: TextBacking;
 }
 
 export const STYLE_META: Record<
@@ -252,6 +256,7 @@ export const DEFAULT_CONFIG: Omit<RenderConfig, "people"> = {
   ease: "smooth",
   sweep: true,
   textFx: "soft",
+  backing: "soft",
 };
 
 export function totalDuration(cfg: RenderConfig): number {

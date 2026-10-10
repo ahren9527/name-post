@@ -48,6 +48,7 @@ export function PreviewStage() {
     s.ease,
     s.sweep,
     s.textFx,
+    s.backing,
   ]),
   );
   const people = useStudio((s) => s.people);

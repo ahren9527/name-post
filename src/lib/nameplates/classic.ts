@@ -9,6 +9,7 @@
  */
 import { FONT_SANS, FONT_SERIF } from "./fonts.ts";
 import { packTitle } from "./text.ts";
+import { backingTone, crispShadow, deepTint, featherBox, solidBox } from "./backing.ts";
 import type { ClipLayer, NameplateStyle, Person, RenderConfig } from "./types.ts";
 
 /* ─────────────────────────── palette ─────────────────────────── */
@@ -657,7 +658,14 @@ function boundsOf(m: ClassicPlate, a: number, b: number, ta: number, tb: number)
 
 /* ─────────────────────────── draw ─────────────────────────── */
 
-type Pal = { name: string; title: string; accent: string; band: string; fx: RenderConfig["textFx"] };
+type Pal = {
+  name: string;
+  title: string;
+  accent: string;
+  band: string;
+  fx: RenderConfig["textFx"];
+  backing: NonNullable<RenderConfig["backing"]>;
+};
 
 function palOf(cfg: RenderConfig): Pal {
   return {
@@ -666,6 +674,7 @@ function palOf(cfg: RenderConfig): Pal {
     accent: refineClassicColor(cfg.accentColor) || CLASSIC_COLORS.white,
     band: refineClassicColor(cfg.bandColor) || "rgba(10,10,12,0.5)",
     fx: cfg.textFx ?? "soft",
+    backing: cfg.backing ?? "soft",
   };
 }
 
@@ -696,93 +705,28 @@ function withLayer(ctx: CanvasRenderingContext2D, person: Person, layer: ClipLay
   ctx.restore();
 }
 
-/* feathered scrim: horizontal × vertical smootherstep ramps, cached per size */
-type Scratch = HTMLCanvasElement | OffscreenCanvas;
-const scrimCache = new Map<string, Scratch>();
-
-function makeCanvas(w: number, h: number): Scratch | null {
-  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
-  if (typeof document !== "undefined") {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    return c;
-  }
-  return null;
-}
-
-/**
- * Feathered scrim image. Each edge ramps with smootherstep over `f*` px; the
- * ramp straddles the plate edge (≈40% inside, 60% outside) so the darkening
- * hugs the text without a visible boundary.
+/*
+ * Backing behind the plate (衬底). 柔光 hugs the plate with a gaussian edge,
+ * tinted by the 底板 colour (or a deep tone of the accent when it is stock
+ * near-black) and dropped when 底板 and type are both light, so it never turns
+ * into a grey smear over bright footage. 实底 is a clean intentional plate.
  */
-function scrimImage(w: number, h: number, fl: number, fr: number, fy: number, color: RGBA, alpha: number): Scratch | null {
-  const k = 0.5; // the ramps are smooth, half resolution is invisible once scaled
-  const ol = fl * 0.6;
-  const or = fr * 0.6;
-  const oy = fy * 0.6;
-  const W = w + ol + or;
-  const H = h + oy * 2;
-  const cw = Math.max(4, Math.round(W * k));
-  const ch = Math.max(4, Math.round(H * k));
-  const key = `${cw}x${ch}:${Math.round(fl)}:${Math.round(fr)}:${Math.round(fy)}:${color.join(",")}:${alpha}`;
-  const hit = scrimCache.get(key);
-  if (hit) return hit;
-  const cv = makeCanvas(cw, ch);
-  if (!cv) return null;
-  const c = cv.getContext("2d") as CanvasRenderingContext2D | null;
-  if (!c) return null;
-  const n = 16;
-  const ramp = (g: CanvasGradient, len: number, a: number, b: number, tint: boolean) => {
-    // a = near-edge ramp length fraction, b = far-edge ramp length fraction
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const v = smoother(t);
-      const col = tint ? rgba(color, alpha * v) : `rgba(0,0,0,${v.toFixed(4)})`;
-      g.addColorStop(Math.min(0.5, (a / len) * t), col);
-      g.addColorStop(Math.max(0.5, 1 - (b / len) * t), col);
-    }
-  };
-  const gx = c.createLinearGradient(0, 0, cw, 0);
-  ramp(gx, W, fl, fr, true);
-  c.fillStyle = gx;
-  c.fillRect(0, 0, cw, ch);
-  c.globalCompositeOperation = "destination-in";
-  const gy = c.createLinearGradient(0, 0, 0, ch);
-  ramp(gy, H, fy, fy, false);
-  c.fillStyle = gy;
-  c.fillRect(0, 0, cw, ch);
-  if (scrimCache.size > 32) scrimCache.delete(scrimCache.keys().next().value!);
-  scrimCache.set(key, cv);
-  return cv;
-}
-
 function drawScrim(ctx: CanvasRenderingContext2D, m: ClassicPlate, pal: Pal, t: number) {
-  if (pal.fx === "none" || t <= 0.01) return;
-  const band = parseColor(pal.band);
-  // translucent dark band colours tint the scrim; anything else uses a neutral warm black
-  const lum = 0.2126 * band[0] + 0.7152 * band[1] + 0.0722 * band[2];
-  const color: RGBA = band[3] < 0.95 && lum < 60 ? band : [8, 8, 10, 1];
-  const near = m.N * 1.0;
-  const far = m.N * (m.vertical ? 1.0 : 2.0);
-  const fl = m.flip && !m.vertical ? far : near;
-  const fr = m.flip && !m.vertical ? near : far;
-  const fy = m.N * 0.95;
-  const img = scrimImage(m.width, m.height, fl, fr, fy, color, 0.52);
-  if (!img) return;
+  if (pal.fx === "none" || pal.backing === "none" || t <= 0.01) return;
+  const N = m.N;
   ctx.save();
   ctx.globalAlpha *= smoother(Math.min(1, t * 1.4));
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img as CanvasImageSource, -fl * 0.6, -fy * 0.6, m.width + (fl + fr) * 0.6, m.height + fy * 1.2);
+  if (pal.backing === "solid") {
+    const px = N * 0.32;
+    const py = N * 0.24;
+    solidBox(ctx, { x: -px, y: -py, w: m.width + px * 2, h: m.height + py * 2 }, N * 0.08, pal.band);
+  } else {
+    const tone = backingTone(parseColor(pal.band), parseColor(pal.name), parseColor(pal.accent), 0.5);
+    const px = N * 0.16;
+    const py = N * 0.1;
+    featherBox(ctx, { x: -px, y: -py, w: m.width + px * 2, h: m.height + py * 2 }, N * 0.9, tone.color, 0.22 * tone.alpha);
+  }
   ctx.restore();
-}
-
-function textShadow(ctx: CanvasRenderingContext2D, pal: Pal, size: number) {
-  if (pal.fx === "none") return;
-  const k = devScale(ctx);
-  ctx.shadowColor = "rgba(0,0,0,0.46)";
-  ctx.shadowBlur = size * 0.1 * k;
-  ctx.shadowOffsetY = size * 0.022 * k;
 }
 
 function paintText(
@@ -812,9 +756,10 @@ function paintText(
     ctx.restore();
   }
   ctx.save();
-  if (!onBand) textShadow(ctx, pal, size);
   ctx.fillStyle = fill;
-  run((ch, cx) => ctx.fillText(ch, cx, y));
+  const draw = () => run((ch, cx) => ctx.fillText(ch, cx, y));
+  if (!onBand && pal.fx !== "none") crispShadow(ctx, size, 0.72, draw, deepTint(parseColor(pal.accent), 0.035));
+  else draw();
   ctx.restore();
 }
 

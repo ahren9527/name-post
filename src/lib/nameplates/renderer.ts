@@ -218,8 +218,9 @@ const STROKE_CORE = "rgba(6, 8, 12, 0.96)";
 /** Default legibility: a very soft drop shadow instead of the legacy outline. */
 function softText(ctx: CanvasRenderingContext2D, strokeWidth: number) {
   if (TEXT_FX === "none") return;
-  ctx.shadowColor = "rgba(0,0,0,0.42)";
-  ctx.shadowBlur = Math.max(6, strokeWidth * 2.2);
+  // tight contact shadow: reads as depth, not as a grey haze on bright footage
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = Math.max(2, strokeWidth * 0.9);
   ctx.shadowOffsetY = Math.max(1, strokeWidth * 0.3);
 }
 
@@ -1387,6 +1388,7 @@ export function renderConfigFromState(state: {
   ease?: import("./types").EaseKind;
   sweep?: boolean;
   textFx?: import("./types").TextFx;
+  backing?: import("./types").TextBacking;
 }): RenderConfig {
   return {
     people: state.people,
@@ -1413,6 +1415,7 @@ export function renderConfigFromState(state: {
     ease: state.ease ?? "smooth",
     sweep: state.sweep ?? true,
     textFx: state.textFx ?? "soft",
+    backing: state.backing ?? "soft",
   };
 }
 

@@ -31,6 +31,7 @@ import {
   type Region,
   type TemplateSpec,
 } from "./spec";
+import { alphaOfCss, backingTone, crispShadow, deepTint, featherBox, solidBox, type TextBacking } from "../backing";
 
 export function isPremiumStyle(style: string): boolean {
   return isPremiumId(style);
@@ -77,6 +78,7 @@ interface Pal {
   accent: RGBA;
   band: RGBA;
   en: RGBA;
+  backing: TextBacking;
 }
 
 function paletteOf(cfg: RenderConfig): Pal {
@@ -87,6 +89,7 @@ function paletteOf(cfg: RenderConfig): Pal {
     accent,
     band: parseColor(cfg.bandColor || "rgba(14,30,58,0.94)"),
     en: accent,
+    backing: cfg.backing ?? "soft",
   };
 }
 
@@ -1519,35 +1522,31 @@ function drawPlateLayer(
   const plateR = laid.regions.plate!;
   if (layer.kind === "scrim") {
     const p = m.plate;
-    if (p <= 0.001) return;
+    if (p <= 0.001 || pal.backing === "none") return;
     const tb = textBounds(laid);
     const N = laid.texts.find((t) => t.kind === "name")?.size ?? 60;
-    // A soft shade band anchored toward the screen edge: eased vertically and
-    // faded horizontally past the type with the same smootherstep the plates
-    // use — it reads as deliberate shading, never as a grey disc on light
-    // backgrounds.
-    const padV = N * 1.3;
-    const y0 = tb.y - padV;
-    const y1 = tb.y + tb.h + padV;
-    const x0 = -N * 3;
-    const fadeStart = tb.x + tb.w + N * 0.15;
-    const x1 = fadeStart + N * 3.2;
-    const bounds: Rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     ctx.save();
     ctx.globalAlpha *= p;
-    drawMasked(ctx, 2, bounds, fadeStart, x1, (c) => {
-      const g = c.createLinearGradient(0, y0, 0, y1);
-      const n = 12;
-      for (let i = 0; i <= n; i++) {
-        const t = i / n;
-        const d = Math.abs(t - 0.5) * 2;
-        const core = (tb.h / 2) / (tb.h / 2 + padV);
-        const a = 1 - smoother((d - core * 0.7) / (1 - core * 0.7));
-        g.addColorStop(t, `rgba(0,0,0,${(layer.alpha * a).toFixed(4)})`);
-      }
-      c.fillStyle = g;
-      c.fillRect(x0, y0, x1 - x0, y1 - y0);
-    });
+    if (pal.backing === "solid") {
+      // 实底: an intentional clean plate in the 底板 colour, hugging the type
+      const padX = N * 0.42;
+      const padY = N * 0.34;
+      solidBox(ctx, { x: tb.x - padX, y: tb.y - padY, w: tb.w + padX * 2, h: tb.h + padY * 2 }, N * 0.1, css(pal.band));
+    } else {
+      // 柔光: a shade that hugs the text block with a gaussian edge, tinted by
+      // the 底板 colour (or the palette's deep tone when 底板 is stock black) and
+      // dropped when 底板 and type are both light — never a grey fog.
+      const tone = backingTone(pal.band, pal.name, pal.accent, alphaOfCss(laid.spec.palette.band));
+      const padX = N * 0.2;
+      const padY = N * 0.14;
+      featherBox(
+        ctx,
+        { x: tb.x - padX, y: tb.y - padY, w: tb.w + padX * 2, h: tb.h + padY * 2 },
+        N * 1.0,
+        tone.color,
+        layer.alpha * 0.46 * tone.alpha,
+      );
+    }
     ctx.restore();
     return;
   }
@@ -2562,13 +2561,13 @@ function drawOrnament(
       if (laid.vertical) {
         const x = laid.ruleX ?? laid.nameX1 + N * 0.3;
         ax0 = ax1 = x;
-        ay0 = -N * 0.5;
-        ay1 = H + N * 0.7;
+        ay0 = 0;
+        ay1 = H + N * 0.2;
       } else {
         const y = laid.ruleY ?? H / 2;
         ay0 = ay1 = y;
-        ax0 = -N * 0.35;
-        ax1 = W + N * 1.2;
+        ax0 = -N * 0.2;
+        ax1 = W + N * 0.5;
       }
       const L = Math.hypot(ax1 - ax0, ay1 - ay0);
       const env = (u: number) => smoother(u / 0.16) * (1 - smoother((u - 0.42) / 0.58));
@@ -2580,19 +2579,19 @@ function drawOrnament(
       else ctx.rect(ax0, ay0 - 30, L * p, 60);
       ctx.clip();
       ctx.fillStyle = g;
-      ctx.shadowColor = css(c, 0.95);
-      ctx.shadowBlur = 14;
-      const lw = 2;
+      ctx.shadowColor = css(c, 0.6);
+      ctx.shadowBlur = N * 0.12;
+      const lw = 1.6;
       if (laid.vertical) ctx.fillRect(ax0 - lw / 2, ay0, lw, L);
       else ctx.fillRect(ax0, ay0 - lw / 2, L, lw);
-      ctx.shadowBlur = 5;
+      ctx.shadowBlur = 3;
       if (laid.vertical) ctx.fillRect(ax0 - lw / 2, ay0, lw, L);
       else ctx.fillRect(ax0, ay0 - lw / 2, L, lw);
       ctx.restore();
       // drifting particles hugging the beam
       const rnd = rng(hashStr(laid.person.name) + 5);
-      ctx.shadowColor = css(c, 0.9);
-      ctx.shadowBlur = 6;
+      ctx.shadowColor = css(c, 0.7);
+      ctx.shadowBlur = 3;
       for (let i = 0; i < 26; i++) {
         const u0 = rnd();
         const speed = 0.006 + rnd() * 0.02;
@@ -2615,55 +2614,76 @@ function drawOrnament(
       break;
     }
     case "flare": {
+      // A refined anamorphic glint along the name: bounded to the plate,
+      // tapering to zero at both ends, champagne rather than orange, with one
+      // brief bright sweep on entry that settles to a quiet hairline.
       const nm = laid.texts.find((t) => t.kind === "name");
       if (!nm) break;
       const N = nm.size;
-      const c = resolveRGBA(o.color, pal);
-      const core = resolveRGBA(o.core, pal);
       const v = laid.vertical;
-      const cx = v ? nm.box.x + nm.box.w / 2 : laid.nameX0 + (laid.nameX1 - laid.nameX0) * 0.3;
-      const cy = v ? nm.box.y + Math.min(nm.box.h * 0.4, N * 1.4) : nm.box.y + N * 0.5;
+      const CHAMPAGNE: RGBA = [246, 224, 182, 1];
+      const c = mix(resolveRGBA(o.color, pal), CHAMPAGNE, 0.72);
+      const hot = mix(mix(resolveRGBA(o.core, pal), CHAMPAGNE, 0.5), WHITE, 0.4);
+      let a0: number;
+      let a1: number;
+      let cx: number;
+      let cy: number;
+      if (v) {
+        a0 = Math.max(0, nm.box.y - N * 0.9);
+        a1 = Math.min(H, nm.box.y + nm.box.h + N * 0.9);
+        cx = nm.box.x + nm.box.w / 2;
+        cy = (a0 + a1) / 2;
+      } else {
+        a0 = Math.max(0, laid.nameX0 - N * 0.9);
+        a1 = Math.min(W, laid.nameX1 + N * 1.1);
+        cx = (a0 + a1) / 2;
+        cy = nm.box.y + N * 0.5;
+      }
       const sp = easeCubic(p);
       if (sp < 0.02) break;
-      const half = (v ? H * 0.62 + N : W * 0.6 + N * 1.6) * sp;
-      const shimmer = 0.9 + 0.1 * Math.sin(m.local * 2.3);
+      const half = ((a1 - a0) / 2) * sp;
+      // glint sweep: once, ~1.1s from the start of the entry, then settled
+      const st = clamp((m.local - 0.12) / 1.1);
+      const burst = st > 0 && st < 1 ? Math.sin(Math.PI * st) : 0;
+      const level = 0.62 + 0.38 * burst;
       ctx.translate(cx, cy);
       if (v) ctx.rotate(Math.PI / 2);
-      const ell = (rx: number, ry: number, stops: [number, RGBA, number][]) => {
+      // hairline with a short glow, enveloped to zero at both ends
+      const env = (u: number) => Math.pow(Math.sin(Math.PI * clamp(u)), 1.6);
+      const g = ctx.createLinearGradient(-half, 0, half, 0);
+      for (let i = 0; i <= 20; i++) g.addColorStop(i / 20, css(c, env(i / 20) * 0.9 * level));
+      const lw = Math.max(1.2, N * 0.03);
+      ctx.save();
+      ctx.fillStyle = g;
+      ctx.shadowColor = css(c, 0.6 * level);
+      ctx.shadowBlur = N * 0.16;
+      ctx.fillRect(-half, -lw / 2, half * 2, lw);
+      ctx.restore();
+      // faint narrow bloom around the line
+      ctx.save();
+      ctx.scale((half * 0.85) / (N * 0.3), 1);
+      const bl = ctx.createRadialGradient(0, 0, 0, 0, 0, N * 0.3);
+      bl.addColorStop(0, css(c, 0.2 * level));
+      bl.addColorStop(0.5, css(c, 0.07 * level));
+      bl.addColorStop(1, css(c, 0));
+      ctx.fillStyle = bl;
+      ctx.fillRect(-N * 0.3, -N * 0.3, N * 0.6, N * 0.6);
+      ctx.restore();
+      // the travelling glint (only during the sweep)
+      if (burst > 0.01) {
+        const gx = -half + half * 2 * smoother(st);
+        const r = N * 0.55;
         ctx.save();
-        ctx.scale(rx / ry, 1);
-        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, ry);
-        stops.forEach(([t, col, a]) => g.addColorStop(t, css(col, a * shimmer)));
-        ctx.fillStyle = g;
-        ctx.fillRect(-ry, -ry, ry * 2, ry * 2);
+        ctx.translate(gx, 0);
+        ctx.scale(2.2, 1);
+        const gg = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        gg.addColorStop(0, css(hot, 0.85 * burst));
+        gg.addColorStop(0.35, css(c, 0.26 * burst));
+        gg.addColorStop(1, css(c, 0));
+        ctx.fillStyle = gg;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
         ctx.restore();
-      };
-      ell(half, N * 0.6, [
-        [0, c, 0.46],
-        [0.45, c, 0.16],
-        [1, c, 0],
-      ]);
-      ell(half * 1.15, N * 0.1, [
-        [0, mix(core, WHITE, 0.35), 1],
-        [0.35, core, 0.55],
-        [1, c, 0],
-      ]);
-      ell(N * 0.55, N * 0.55, [
-        [0, mix(core, WHITE, 0.5), 0.5],
-        [0.5, core, 0.14],
-        [1, core, 0],
-      ]);
-      // two faint ghost glints along the streak
-      [
-        [half * 0.55, N * 0.1],
-        [-half * 0.38, N * 0.07],
-      ].forEach(([gx, gr]) => {
-        const g = ctx.createRadialGradient(gx, 0, 0, gx, 0, gr);
-        g.addColorStop(0, css(mix(core, WHITE, 0.5), 0.35 * shimmer));
-        g.addColorStop(1, css(core, 0));
-        ctx.fillStyle = g;
-        ctx.fillRect(gx - gr, -gr, gr * 2, gr * 2);
-      });
+      }
       break;
     }
     case "brackets": {
@@ -2967,18 +2987,32 @@ function drawText(
   const fx = cfg.textFx ?? "soft";
   const sh = laid.spec.type.shadow;
   const glow = laid.spec.type.glow;
-  const applyShadow = () => {
+  const shadowTint = deepTint(pal.accent, 0.035);
+  // where the soft backing is off (衬底 无, or dropped because 底板 is as light
+  // as the type) the contact shadow alone carries legibility: firm it up
+  const scrimmed = (laid.vertical ? laid.spec.vertical.plate : laid.spec.plate).some((l) => l.kind === "scrim");
+  let boost = 1;
+  if (scrimmed && pal.backing !== "solid") {
+    const toneA =
+      pal.backing === "none" ? 0 : Math.min(1, backingTone(pal.band, pal.name, pal.accent, alphaOfCss(laid.spec.palette.band)).alpha);
+    boost = 1.15 + 0.25 * (1 - toneA);
+  }
+  /** Paint `draw` with the text effect: neon glow, or the crisp two-layer 柔和投影. */
+  const withFx = (draw: () => void) => {
     if (glow && t.kind === "name" && fx !== "none") {
+      ctx.save();
       ctx.shadowColor = css(resolveRGBA(glow, pal), 0.85);
       ctx.shadowBlur = t.size * 0.32;
       ctx.shadowOffsetY = 0;
+      draw();
+      ctx.restore();
       return;
     }
     if (fx === "soft" && sh > 0) {
-      ctx.shadowColor = `rgba(0,0,0,${0.5 * sh})`;
-      ctx.shadowBlur = 4 + 12 * sh;
-      ctx.shadowOffsetY = 1 + 1.5 * sh;
+      crispShadow(ctx, t.size, sh * boost, draw, shadowTint);
+      return;
     }
+    draw();
   };
   const outline = (draw: (stroke: boolean) => void) => {
     if (fx !== "outline") return;
@@ -2994,12 +3028,10 @@ function drawText(
 
   if (t.mode === "h") {
     outline((st) => fillTracked(ctx, t.text, sx + dsx, t.y, track, st));
-    applyShadow();
-    fillTracked(ctx, t.text, sx + dsx, t.y, track);
+    withFx(() => fillTracked(ctx, t.text, sx + dsx, t.y, track));
   } else if (t.mode === "center") {
     outline((st) => fillTracked(ctx, t.text, sx + dsx, t.y, track, st));
-    applyShadow();
-    fillTracked(ctx, t.text, sx + dsx, t.y, track);
+    withFx(() => fillTracked(ctx, t.text, sx + dsx, t.y, track));
   } else if (t.mode === "v") {
     const adv = t.adv ?? t.size * 1.1;
     ctx.textAlign = "center";
@@ -3024,14 +3056,12 @@ function drawText(
         else ctx.fillText(c, cx, y);
       });
     outline(run);
-    applyShadow();
-    run(false);
+    withFx(() => run(false));
   } else {
     // rotated Latin column, reading top → bottom
     ctx.translate(box.x, t.y);
     ctx.rotate(Math.PI / 2);
-    applyShadow();
-    fillTracked(ctx, t.text, 0, -box.w * 0.02, t.track);
+    withFx(() => fillTracked(ctx, t.text, 0, -box.w * 0.02, t.track));
   }
   ctx.restore();
 }

@@ -1,4 +1,4 @@
-import type { AnimIn, EaseKind, LayoutMode, NameplateStyle, Orient, Person, Side, TextAlign, TextFx } from "./types";
+import type { AnimIn, EaseKind, LayoutMode, NameplateStyle, Orient, Person, Side, TextAlign, TextBacking, TextFx } from "./types";
 
 export interface ProjectSnapshot {
   name: string;
@@ -26,6 +26,8 @@ export interface ProjectSnapshot {
   /** Added with the flagship templates; absent in older projects. */
   sweep?: boolean;
   textFx?: TextFx;
+  /** 衬底; absent in older projects (= "soft"). */
+  backing?: TextBacking;
 }
 
 export interface SavedProject {
@@ -83,6 +85,7 @@ export function snapshotFromState(s: ProjectSnapshot): ProjectSnapshot {
     ease: s.ease,
     sweep: s.sweep ?? true,
     textFx: s.textFx,
+    backing: s.backing ?? "soft",
   };
 }
 

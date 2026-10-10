@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { BUILTIN_FONTS, removeCustomFont, uploadCustomFont } from "@/lib/nameplates/fonts";
 import { TEMPLATE_BY_ID, isPremiumId, supportsVertical } from "@/lib/nameplates/premium/spec";
 import { useStudio } from "@/lib/nameplates/store";
-import { STYLE_META, type AnimIn, type EaseKind, type TextFx, type TitleLines } from "@/lib/nameplates/types";
+import { STYLE_META, type AnimIn, type EaseKind, type TextBacking, type TextFx, type TitleLines } from "@/lib/nameplates/types";
+import { isClassicStyle } from "@/lib/nameplates/classic";
 import { cn } from "@/lib/utils";
 import { ColorRow, Field, Section, Segmented, SliderRow, TextField } from "./widgets";
 
@@ -46,6 +47,7 @@ export function Inspector() {
   const orient = useStudio((s) => s.orient);
   const layout = useStudio((s) => s.layout);
   const textFx = useStudio((s) => s.textFx);
+  const backing = useStudio((s) => s.backing);
   const sweep = useStudio((s) => s.sweep);
   const animIn = useStudio((s) => s.animIn);
   const ease = useStudio((s) => s.ease);
@@ -59,6 +61,10 @@ export function Inspector() {
   const premium = isPremiumId(style);
   const spec = premium ? TEMPLATE_BY_ID[style] : null;
   const canVertical = supportsVertical(style);
+  // 衬底 applies to plate-less flagship templates (soft shade layer) and classic styles
+  const hasBacking = spec
+    ? (orient === "vertical" || spec.nativeVertical ? spec.vertical.plate : spec.plate).some((l) => l.kind === "scrim")
+    : isClassicStyle(style);
   const st = useStudio.getState;
   const moveValue: AnimIn = animIn === "right" ? "left" : animIn === "down" ? "up" : animIn;
 
@@ -209,6 +215,19 @@ export function Inspector() {
             ]}
           />
         </Field>
+        {hasBacking ? (
+          <Field label="衬底" hint="柔光：贴合文字的淡衬底（底板为浅色时自动略去）；实底：按底板颜色/不透明度铺一块干净底板">
+            <Segmented<TextBacking>
+              value={backing}
+              onChange={(v) => st().setBacking(v)}
+              options={[
+                { value: "soft", label: "柔光" },
+                { value: "none", label: "无" },
+                { value: "solid", label: "实底" },
+              ]}
+            />
+          </Field>
+        ) : null}
       </Section>
 
       <Section title="颜色">

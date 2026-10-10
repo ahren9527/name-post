@@ -25,6 +25,7 @@ import {
   type PreviewBg,
   type Side,
   type TextAlign,
+  type TextBacking,
   type TextFx,
   type Workspace,
   isColumnStyle,
@@ -60,6 +61,7 @@ export interface StudioState {
   ease: EaseKind;
   sweep: boolean;
   textFx: TextFx;
+  backing: TextBacking;
   previewBg: PreviewBg;
   showSafe: boolean;
   currentTime: number;
@@ -111,6 +113,7 @@ export interface StudioState {
   setEase: (v: EaseKind) => void;
   setSweep: (v: boolean) => void;
   setTextFx: (v: TextFx) => void;
+  setBacking: (v: TextBacking) => void;
   setPreviewBg: (bg: PreviewBg) => void;
   setShowSafe: (v: boolean) => void;
   setCurrentTime: (t: number) => void;
@@ -179,6 +182,7 @@ function snapOf(s: StudioState): HistorySnap {
     ease: s.ease,
     sweep: s.sweep,
     textFx: s.textFx,
+    backing: s.backing,
   });
 }
 
@@ -197,6 +201,7 @@ export const useStudio = create<StudioState>()(
       return {
         people: DEFAULT_PEOPLE,
         ...DEFAULT_CONFIG,
+        backing: "soft",
         nameFontId: DEFAULT_NAME_FONT,
         titleFontId: DEFAULT_TITLE_FONT,
         customFonts: [],
@@ -298,6 +303,7 @@ export const useStudio = create<StudioState>()(
             bandColor: DEFAULT_CONFIG.bandColor,
             sweep: DEFAULT_CONFIG.sweep,
             textFx: DEFAULT_CONFIG.textFx,
+            backing: "soft",
             inDuration: DEFAULT_CONFIG.inDuration,
             holdDuration: DEFAULT_CONFIG.holdDuration,
             outDuration: DEFAULT_CONFIG.outDuration,
@@ -384,6 +390,7 @@ export const useStudio = create<StudioState>()(
         setEase: (ease) => commit({ ease }),
         setSweep: (sweep) => commit({ sweep }),
         setTextFx: (textFx) => commit({ textFx }),
+        setBacking: (backing) => commit({ backing }),
         setPreviewBg: (previewBg) => set({ previewBg }),
         setShowSafe: (showSafe) => set({ showSafe }),
         setCurrentTime: (currentTime) => set({ currentTime }),
@@ -518,6 +525,7 @@ export const useStudio = create<StudioState>()(
             sweep: snap.sweep ?? true,
             // projects saved before the redesign used the outlined look
             textFx: snap.textFx ?? (isPremiumId(fam.style) ? "soft" : "outline"),
+            backing: snap.backing ?? "soft",
             activePersonId: snap.people[0]?.id ?? "",
             currentTime: snap.inDuration + 0.15,
             playing: false,
@@ -596,6 +604,7 @@ export const useStudio = create<StudioState>()(
         ease: s.ease,
         sweep: s.sweep,
         textFx: s.textFx,
+        backing: s.backing,
         previewBg: s.previewBg,
         showSafe: s.showSafe,
         exportWidth: s.exportWidth,
@@ -618,6 +627,7 @@ export const useStudio = create<StudioState>()(
           sweep: p.sweep ?? true,
           // returning users keep the legacy outlined text on classic styles
           textFx: p.textFx ?? (p.style && !isPremiumId(p.style as string) ? "outline" : "soft"),
+          backing: p.backing ?? "soft",
           // pre-v3 colour-variant card ids collapse onto their merged classic card
           favorited: migrateFavorites(p.favorited ?? ["classic-duo", "classic-hook", "classic-fold"]),
           customPresets: p.customPresets ?? [],
