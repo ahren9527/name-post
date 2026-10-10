@@ -242,7 +242,15 @@ export async function loadNameplateFonts(ids?: FontId[]): Promise<void> {
       Promise.all([
         ...wanted.map((id) => ensureFontReady(id)),
         document.fonts.load(`600 92px ${FONT_SERIF}`),
+        document.fonts.load(`700 92px ${FONT_SERIF}`),
         document.fonts.load(`400 28px ${FONT_SANS}`),
+        document.fonts.load(`700 60px ${FONT_SANS}`),
+        document.fonts.load(`500 16px "Montserrat"`, "ABC"),
+        document.fonts.load(`600 16px "Montserrat"`, "ABC"),
+        document.fonts.load(`600 18px "Cormorant Garamond"`, "ABC"),
+        document.fonts.load(`italic 500 18px "Cormorant Garamond"`, "Abc"),
+        document.fonts.load(`500 16px "JetBrains Mono"`, "A0"),
+        document.fonts.load(`italic 700 40px "Barlow Condensed"`, "10"),
         document.fonts.ready,
       ]),
       new Promise<void>((resolve) => {
@@ -252,4 +260,30 @@ export async function loadNameplateFonts(ids?: FontId[]): Promise<void> {
   } catch {
     /* system fallbacks still paint CJK */
   }
+}
+
+const glyphSeen = new Set<string>();
+
+/**
+ * Web fonts are served in unicode-range slices, and `document.fonts.load`
+ * without text only fetches the Latin slice — CJK glyphs would paint in a
+ * fallback face on the first frames (and in exports). Load the exact
+ * characters we are about to draw, for each face/weight in use.
+ */
+export async function loadTextGlyphs(texts: string[], stacks: string[]): Promise<boolean> {
+  if (typeof document === "undefined") return false;
+  const chars = [...new Set([...texts.join("")])].filter((c) => c.trim()).join("");
+  if (!chars) return false;
+  const jobs: Promise<unknown>[] = [];
+  for (const stack of stacks) {
+    for (const w of [400, 500, 600, 700]) {
+      const key = `${w}|${stack}|${chars}`;
+      if (glyphSeen.has(key)) continue;
+      glyphSeen.add(key);
+      jobs.push(document.fonts.load(`${w} 40px ${stack}`, chars).catch(() => undefined));
+    }
+  }
+  if (!jobs.length) return false;
+  await Promise.race([Promise.all(jobs), new Promise((r) => window.setTimeout(r, 5000))]);
+  return true;
 }

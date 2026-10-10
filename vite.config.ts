@@ -142,6 +142,15 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+/**
+ * `npm run build:static` sets BUILD_TARGET=static: the studio is fully
+ * client-side (localStorage + IndexedDB, no auth, no DB), so it ships as a
+ * plain static site — a prerendered SPA shell at `.output/public/index.html`
+ * that any static host (Cloudflare Pages, Netlify, Vercel static, GitHub
+ * Pages, OSS/COS buckets) can serve.
+ */
+const STATIC_BUILD = process.env.BUILD_TARGET === "static";
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -166,15 +175,20 @@ export default defineConfig(({ command, isPreview }) => ({
     // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
     grokPwaPlugin(),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart(
+      STATIC_BUILD
+        ? { spa: { enabled: true, prerender: { outputPath: "/index.html", crawlLinks: false } } }
+        : undefined,
+    ),
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            preset: STATIC_BUILD ? "node-server" : "vercel",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
-            serverDir: "./server",
+            // (static build: no server, so the PWA middleware is skipped)
+            ...(STATIC_BUILD ? { serverDir: false as const } : { serverDir: "./server" }),
           }),
         ]
       : []),

@@ -3,3 +3,8 @@ node_modules/
 .github_repo
 .env
 .env.*
+
+# build output
+.output/
+.nitro/
+dist/

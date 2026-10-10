@@ -1,38 +1,124 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Latin faces for the English line, numbers and UI — self-hosted (small, no CDN dependency). */
+@font-face {
+  font-family: "Barlow Condensed";
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/BarlowCondensed-600i.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Barlow Condensed";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/BarlowCondensed-700i.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/CormorantGaramond-600.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: italic;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/CormorantGaramond-500i.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-500.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/Inter-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/Inter-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/Inter-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/Montserrat-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/Montserrat-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme {
-  --font-sans: "Noto Sans SC", "WenQuanYi Zen Hei", "PingFang SC", "Microsoft YaHei",
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "WenQuanYi Zen Hei",
     "Segoe UI", system-ui, sans-serif;
   --font-serif: "Noto Serif SC", "Songti SC", "STSong", "WenQuanYi Zen Hei", serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
-  --color-background: #0b1016;
-  --color-foreground: #e8eef6;
-  --color-card: #121922;
-  --color-card-foreground: #e8eef6;
-  --color-popover: #161e28;
-  --color-popover-foreground: #e8eef6;
-  --color-primary: #4f8cff;
-  --color-primary-foreground: #f4f8ff;
-  --color-secondary: #1a232e;
-  --color-secondary-foreground: #e8eef6;
-  --color-muted: #151c26;
-  --color-muted-foreground: #8b97a8;
-  --color-accent: #1e2834;
-  --color-accent-foreground: #e8eef6;
-  --color-destructive: #c4544c;
-  --color-border: rgb(255 255 255 / 0.07);
-  --color-input: rgb(255 255 255 / 0.1);
-  --color-ring: #4f8cff;
-  --color-brand: #4f8cff;
-  --color-brand-foreground: #f4f8ff;
-  --color-rail: #0a0e14;
-  --color-panel: #10161e;
-  --color-track-name: #4f8cff;
-  --color-track-title: #7b6cff;
-  --color-track-deco: #2f5fbf;
-  --color-track-band: #3554a8;
+  /* Calm graphite surfaces, one warm accent (champagne gold). */
+  --color-background: #0d0e10;
+  --color-foreground: #e9e9eb;
+  --color-card: #16171a;
+  --color-card-foreground: #e9e9eb;
+  --color-popover: #1c1d21;
+  --color-popover-foreground: #e9e9eb;
+  --color-primary: #d9b56c;
+  --color-primary-foreground: #1b160c;
+  --color-secondary: #1e1f23;
+  --color-secondary-foreground: #e9e9eb;
+  --color-muted: #18191c;
+  --color-muted-foreground: #8d8f96;
+  --color-faint: #5d5f66;
+  --color-accent: #232428;
+  --color-accent-foreground: #f2f2f3;
+  --color-destructive: #d0564e;
+  --color-border: rgb(255 255 255 / 0.065);
+  --color-hairline: rgb(255 255 255 / 0.04);
+  --color-input: rgb(255 255 255 / 0.09);
+  --color-ring: #d9b56c;
+  --color-brand: #d9b56c;
+  --color-brand-foreground: #1b160c;
+  --color-rail: #0a0b0c;
+  --color-panel: #121315;
+  --color-raised: #191a1d;
+  --color-track-name: #c9a560;
+  --color-track-title: #8a7bd8;
+  --color-track-deco: #4c8fd6;
+  --color-track-band: #4a6a8f;
 
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -90,9 +176,11 @@
 }
 
 @utility bg-live {
-  background:
-    linear-gradient(90deg, rgb(190 215 235 / 0.92) 0%, rgb(210 225 215 / 0.55) 42%, rgb(120 150 120 / 0.7) 100%),
-    linear-gradient(180deg, rgb(245 248 250) 0%, rgb(170 196 214) 55%, rgb(78 92 84) 100%);
+  background: #2a2b2e url("/bg/live-interview.jpg") center / cover no-repeat;
+}
+
+@utility bg-light {
+  background: linear-gradient(135deg, #f5f6f8 0%, #dfe3e8 100%);
 }
 
 @utility field-select {
@@ -109,5 +197,20 @@
   &:focus-visible {
     border-color: color-mix(in oklab, var(--color-ring) 40%, transparent);
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-ring) 30%, transparent);
+  }
+}
+
+/* Thin, quiet scrollbars for the editor panes. */
+@utility scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+
+@layer base {
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand) 35%, transparent);
+  }
+  input[type="number"]::-webkit-inner-spin-button {
+    opacity: 0.4;
   }
 }

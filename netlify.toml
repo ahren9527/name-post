@@ -1,0 +1,7 @@
+# Static deploy of the studio (no server, no database needed).
+[build]
+  command = "npm run build:static"
+  publish = ".output/public"
+
+[build.environment]
+  NODE_VERSION = "22"

@@ -6,7 +6,8 @@ import {
   ensureFontReady,
   type CustomFontMeta,
 } from "./fonts";
-import { groupOf, type StyleCard } from "./presets";
+import { groupOf, migrateFavorites, type StyleCard } from "./presets";
+import { isPremiumId, supportsVertical } from "./premium/spec";
 import { snapshotFromState, type ProjectSnapshot } from "./projects";
 import {
   DEFAULT_CONFIG,
@@ -24,6 +25,8 @@ import {
   type PreviewBg,
   type Side,
   type TextAlign,
+  type TextBacking,
+  type TextFx,
   type Workspace,
   isColumnStyle,
   normalizeFamily,
@@ -56,6 +59,9 @@ export interface StudioState {
   stagger: number;
   animIn: AnimIn;
   ease: EaseKind;
+  sweep: boolean;
+  textFx: TextFx;
+  backing: TextBacking;
   previewBg: PreviewBg;
   showSafe: boolean;
   currentTime: number;
@@ -105,6 +111,9 @@ export interface StudioState {
   setStagger: (n: number) => void;
   setAnimIn: (v: AnimIn) => void;
   setEase: (v: EaseKind) => void;
+  setSweep: (v: boolean) => void;
+  setTextFx: (v: TextFx) => void;
+  setBacking: (v: TextBacking) => void;
   setPreviewBg: (bg: PreviewBg) => void;
   setShowSafe: (v: boolean) => void;
   setCurrentTime: (t: number) => void;
@@ -127,6 +136,9 @@ export interface StudioState {
     bandColor?: string;
     nameColor?: string;
     titleColor?: string;
+    nameFontId?: string;
+    titleFontId?: string;
+    sweep?: boolean;
   }) => void;
   toggleFavorite: (id: string) => void;
   saveCustomPreset: () => StyleCard;
@@ -168,7 +180,15 @@ function snapOf(s: StudioState): HistorySnap {
     stagger: s.stagger,
     animIn: s.animIn,
     ease: s.ease,
+    sweep: s.sweep,
+    textFx: s.textFx,
+    backing: s.backing,
   });
+}
+
+/** Snapshot of the current studio state, for saving to the project library. */
+export function currentSnapshot(): ProjectSnapshot {
+  return snapOf(useStudio.getState());
 }
 
 export const useStudio = create<StudioState>()(
@@ -181,16 +201,11 @@ export const useStudio = create<StudioState>()(
       return {
         people: DEFAULT_PEOPLE,
         ...DEFAULT_CONFIG,
+        backing: "soft",
         nameFontId: DEFAULT_NAME_FONT,
         titleFontId: DEFAULT_TITLE_FONT,
         customFonts: [],
         fontEpoch: 0,
-        nameColor: "#f7f7f7",
-        titleColor: "#e8e8e8",
-        accentColor: "#e8b423",
-        bandColor: "rgba(12,10,6,0.5)",
-        animIn: "left",
-        ease: "smooth",
         previewBg: "live",
         showSafe: true,
         currentTime: 1.6,
@@ -199,10 +214,10 @@ export const useStudio = create<StudioState>()(
         exportFps: 29.97,
         workspace: "editor",
         editorNav: "style",
-        projectName: "Untitled Project",
+        projectName: "未命名项目",
         activePersonId: DEFAULT_PEOPLE[0]!.id,
         selectedClip: null,
-        favorited: ["duo-gold", "hook-white", "fold-white"],
+        favorited: ["pro-goldnavy", "pro-blackgold", "pro-keynote"],
         customPresets: [],
         past: [],
         future: [],
@@ -264,17 +279,11 @@ export const useStudio = create<StudioState>()(
             ...DEFAULT_CONFIG,
             nameFontId: DEFAULT_NAME_FONT,
             titleFontId: DEFAULT_TITLE_FONT,
-            nameColor: "#f7f7f7",
-            titleColor: "#e8e8e8",
-            accentColor: "#e8b423",
-            bandColor: "rgba(12,10,6,0.5)",
-            animIn: "left",
-            ease: "smooth",
-            currentTime: 1.2,
+            currentTime: DEFAULT_CONFIG.inDuration + 0.6,
             playing: false,
             exportFps: 29.97,
             activePersonId: DEFAULT_PEOPLE[0]!.id,
-            projectName: "Untitled Project",
+            projectName: "未命名项目",
           }),
         resetStyle: () =>
           commit({
@@ -288,16 +297,19 @@ export const useStudio = create<StudioState>()(
             titleSize: DEFAULT_CONFIG.titleSize,
             nameFontId: DEFAULT_NAME_FONT,
             titleFontId: DEFAULT_TITLE_FONT,
-            nameColor: "#f7f7f7",
-            titleColor: "#e8e8e8",
-            accentColor: "#e8b423",
-            bandColor: "rgba(12,10,6,0.5)",
+            nameColor: DEFAULT_CONFIG.nameColor,
+            titleColor: DEFAULT_CONFIG.titleColor,
+            accentColor: DEFAULT_CONFIG.accentColor,
+            bandColor: DEFAULT_CONFIG.bandColor,
+            sweep: DEFAULT_CONFIG.sweep,
+            textFx: DEFAULT_CONFIG.textFx,
+            backing: "soft",
             inDuration: DEFAULT_CONFIG.inDuration,
             holdDuration: DEFAULT_CONFIG.holdDuration,
             outDuration: DEFAULT_CONFIG.outDuration,
             stagger: DEFAULT_CONFIG.stagger,
-            animIn: "left",
-            ease: "smooth",
+            animIn: DEFAULT_CONFIG.animIn,
+            ease: DEFAULT_CONFIG.ease,
           }),
         setStyle: (style) =>
           commit({
@@ -316,12 +328,15 @@ export const useStudio = create<StudioState>()(
                   : "left"
                 : get().animIn,
           }),
-        setOrient: (orient) =>
+        setOrient: (want) => {
+          const orient = supportsVertical(get().style) ? want : "horizontal";
           commit({
             orient,
             align: isColumnStyle(orient) ? "top" : get().side === "right" ? "right" : "left",
-          }),
-        setVariant: (orient, side) =>
+          });
+        },
+        setVariant: (want, side) => {
+          const orient = supportsVertical(get().style) ? want : "horizontal";
           commit({
             orient,
             side,
@@ -332,7 +347,8 @@ export const useStudio = create<StudioState>()(
                   ? "right"
                   : "left"
                 : get().animIn,
-          }),
+          });
+        },
         setAlign: (align) => commit({ align }),
         setScale: (scale) => commit({ scale }),
         setTextSize: (textSize) => commit({ textSize }),
@@ -372,6 +388,9 @@ export const useStudio = create<StudioState>()(
                     : get().align,
           }),
         setEase: (ease) => commit({ ease }),
+        setSweep: (sweep) => commit({ sweep }),
+        setTextFx: (textFx) => commit({ textFx }),
+        setBacking: (backing) => commit({ backing }),
         setPreviewBg: (previewBg) => set({ previewBg }),
         setShowSafe: (showSafe) => set({ showSafe }),
         setCurrentTime: (currentTime) => set({ currentTime }),
@@ -424,11 +443,19 @@ export const useStudio = create<StudioState>()(
           const t =
             st.currentTime < st.inDuration * 0.5 || st.playing ? hold : st.currentTime;
           const family = normalizeFamily(p.style);
+          const orient = supportsVertical(family.style) ? st.orient : "horizontal";
+          if (p.nameFontId) applyFont(p.nameFontId);
+          if (p.titleFontId) applyFont(p.titleFontId);
           commit({
             style: family.style,
             side,
-            orient: st.orient,
-            align: isColumnStyle(st.orient) ? "top" : side === "right" ? "right" : "left",
+            orient,
+            align: isColumnStyle(orient) ? "top" : side === "right" ? "right" : "left",
+            nameFontId: p.nameFontId ?? st.nameFontId,
+            titleFontId: p.titleFontId ?? st.titleFontId,
+            sweep: p.sweep ?? st.sweep,
+            // gallery templates are designed around the soft shadow + scrim; the legacy outline stays opt-in
+            textFx: st.textFx === "outline" ? "soft" : st.textFx,
             accentColor: p.accentColor ?? st.accentColor,
             bandColor: p.bandColor ?? st.bandColor,
             nameColor: p.nameColor ?? st.nameColor,
@@ -459,6 +486,9 @@ export const useStudio = create<StudioState>()(
             bandColor: st.bandColor,
             nameColor: st.nameColor,
             titleColor: st.titleColor,
+            nameFontId: st.nameFontId,
+            titleFontId: st.titleFontId,
+            sweep: st.sweep,
             group: groupOf(st.style),
           };
           set({
@@ -492,6 +522,10 @@ export const useStudio = create<StudioState>()(
             stagger: snap.stagger,
             animIn: snap.animIn,
             ease: snap.ease,
+            sweep: snap.sweep ?? true,
+            // projects saved before the redesign used the outlined look
+            textFx: snap.textFx ?? (isPremiumId(fam.style) ? "soft" : "outline"),
+            backing: snap.backing ?? "soft",
             activePersonId: snap.people[0]?.id ?? "",
             currentTime: snap.inDuration + 0.15,
             playing: false,
@@ -568,6 +602,9 @@ export const useStudio = create<StudioState>()(
         stagger: s.stagger,
         animIn: s.animIn,
         ease: s.ease,
+        sweep: s.sweep,
+        textFx: s.textFx,
+        backing: s.backing,
         previewBg: s.previewBg,
         showSafe: s.showSafe,
         exportWidth: s.exportWidth,
@@ -587,7 +624,12 @@ export const useStudio = create<StudioState>()(
           orient: p.orient ?? fam.orient ?? "horizontal",
           animIn: p.animIn ?? "left",
           ease: p.ease ?? "smooth",
-          favorited: p.favorited ?? ["duo-gold", "hook-white", "fold-white"],
+          sweep: p.sweep ?? true,
+          // returning users keep the legacy outlined text on classic styles
+          textFx: p.textFx ?? (p.style && !isPremiumId(p.style as string) ? "outline" : "soft"),
+          backing: p.backing ?? "soft",
+          // pre-v3 colour-variant card ids collapse onto their merged classic card
+          favorited: migrateFavorites(p.favorited ?? ["classic-duo", "classic-hook", "classic-fold"]),
           customPresets: p.customPresets ?? [],
           selectedClip: null,
           past: [],
