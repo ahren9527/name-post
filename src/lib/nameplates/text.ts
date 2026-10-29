@@ -68,7 +68,8 @@ function balanceParts(parts: string[], n: number): string[] {
   return lines;
 }
 
-export function packTitle(text: string, n: number): string[] {
+/** Legacy automatic packing (pre-2026-10-29): only used to migrate saved single-string titles. */
+export function legacyPackTitle(text: string, n: number): string[] {
   const t = text.trim();
   if (!t) return [];
   const count = Math.max(1, Math.min(3, Math.round(n) || 1));
@@ -78,3 +79,33 @@ export function packTitle(text: string, n: number): string[] {
   return balanceParts(parts, count);
 }
 
+/** Max 职务 inputs per guest. */
+export const MAX_TITLES = 4;
+
+const TRAILING_SEP = /[、，,;；\s]+$/;
+
+/**
+ * 职务 are entered one per input box and stored joined with "\n".
+ * Each entry is one line (横排) / one column (竖排) — never auto-wrapped.
+ */
+export function splitTitles(text: string): string[] {
+  return text.split("\n");
+}
+
+export function joinTitles(list: string[]): string {
+  return list.join("\n");
+}
+
+/** Lines to render: one per non-empty 职务, dangling list separators dropped. */
+export function packTitle(text: string, _legacyLines?: number): string[] {
+  return splitTitles(text)
+    .map((l) => l.trim().replace(TRAILING_SEP, ""))
+    .filter((l) => l.length > 0)
+    .slice(0, MAX_TITLES);
+}
+
+/** Old saved data: one string + titleLines → explicit lines. */
+export function migrateTitle(title: string, titleLines?: number): string {
+  if (title.includes("\n") || !titleLines || titleLines <= 1) return title;
+  return joinTitles(legacyPackTitle(title, titleLines).map((l) => l.replace(TRAILING_SEP, "")));
+}

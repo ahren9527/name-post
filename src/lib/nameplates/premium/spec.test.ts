@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { packTitle } from "../text.ts";
+import { legacyPackTitle, migrateTitle, packTitle } from "../text.ts";
 import { DEFAULT_CONFIG, STYLE_META, normalizeFamily } from "../types.ts";
 import { PREMIUM_IDS, TEMPLATES, TEMPLATE_BY_ID, TEMPLATE_CATEGORIES, isPremiumId, supportsVertical } from "./spec.ts";
 
@@ -55,9 +55,16 @@ test("old saved style ids still resolve", () => {
   assert.ok(isPremiumId(DEFAULT_CONFIG.style));
 });
 
-test("title packing splits at separators", () => {
-  assert.deepEqual(packTitle("吕梁市委副书记、市长", 1), ["吕梁市委副书记、市长"]);
-  const two = packTitle("汾酒集团党委副书记、副董事长、总经理", 2);
+test("职务: one input = one line/column, never auto-wrapped", () => {
+  assert.deepEqual(packTitle("吕梁市委副书记、市长"), ["吕梁市委副书记、市长"]);
+  assert.deepEqual(packTitle("金徽工匠、\n高级制曲技师\n\n  "), ["金徽工匠", "高级制曲技师"]);
+  assert.deepEqual(packTitle("a\nb\nc\nd\ne"), ["a", "b", "c", "d"]);
+});
+
+test("legacy titleLines migrate to explicit lines", () => {
+  const two = legacyPackTitle("汾酒集团党委副书记、副董事长、总经理", 2);
   assert.equal(two.length, 2);
   assert.equal(two.join(""), "汾酒集团党委副书记、副董事长、总经理");
+  assert.equal(migrateTitle("汾酒集团党委副书记、副董事长、总经理", 2).split("\n").length, 2);
+  assert.equal(migrateTitle("市长", 1), "市长");
 });

@@ -1,11 +1,12 @@
 import { useRef } from "react";
-import { RotateCcw, Upload, X } from "lucide-react";
+import { Plus, RotateCcw, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { BUILTIN_FONTS, removeCustomFont, uploadCustomFont } from "@/lib/nameplates/fonts";
 import { TEMPLATE_BY_ID, isPremiumId, supportsVertical } from "@/lib/nameplates/premium/spec";
 import { useStudio } from "@/lib/nameplates/store";
-import { STYLE_META, type AnimIn, type EaseKind, type TextBacking, type TextFx, type TitleLines } from "@/lib/nameplates/types";
+import { STYLE_META, type AnimIn, type EaseKind, type TextBacking, type TextFx } from "@/lib/nameplates/types";
 import { isClassicStyle } from "@/lib/nameplates/classic";
+import { MAX_TITLES, joinTitles, splitTitles } from "@/lib/nameplates/text";
 import { cn } from "@/lib/utils";
 import { ColorRow, Field, Section, Segmented, SliderRow, TextField } from "./widgets";
 
@@ -107,23 +108,12 @@ export function Inspector() {
                 onChange={(v) => st().updatePerson(person.id, { en: v })}
               />
             </Field>
-            <div className="flex gap-3">
-              <span className="w-[4.25rem] shrink-0 pt-2 text-xs text-muted-foreground">职务</span>
-              <textarea
-                aria-label="职务"
-                value={person.title}
-                rows={2}
-                onChange={(e) => st().updatePerson(person.id, { title: e.target.value })}
-                className="min-h-14 w-full min-w-0 resize-none rounded-md bg-black/25 px-2.5 py-1.5 text-[13px] leading-relaxed ring-1 ring-input outline-none focus:ring-brand/60"
-              />
-            </div>
-            <Field label="职务行数">
-              <Segmented<TitleLines>
-                value={(person.titleLines ?? 1) as TitleLines}
-                onChange={(n) => st().updatePerson(person.id, { titleLines: n })}
-                options={[1, 2, 3].map((n) => ({ value: n as TitleLines, label: `${n} ${orient === "vertical" ? "列" : "行"}` }))}
-              />
-            </Field>
+            <TitleInputs
+              key={person.id}
+              value={person.title}
+              unit={orient === "vertical" || spec?.nativeVertical ? "列" : "行"}
+              onChange={(v) => st().updatePerson(person.id, { title: v })}
+            />
             <Field
               label={spec?.tagHint?.label ?? "机构 / 标签"}
               hint={spec?.tagHint ? `「${spec.label}」显示为${spec.tagHint.label}` : "部分模板显示：运动斜切为号码、新闻双层条为左侧标签、学术讲座为机构行等"}
@@ -462,5 +452,61 @@ function FontRow({
         </button>
       ) : null}
     </Field>
+  );
+}
+
+/** 职务: one input box per role; each box is exactly one line (横排) / one column (竖排). */
+function TitleInputs({
+  value,
+  unit,
+  onChange,
+}: {
+  value: string;
+  unit: string;
+  onChange: (v: string) => void;
+}) {
+  const list = splitTitles(value);
+  const set = (next: string[]) => onChange(joinTitles(next));
+  return (
+    <div className="flex gap-3">
+      <span className="w-[4.25rem] shrink-0 pt-2 text-xs text-muted-foreground">职务</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {list.map((line, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <TextField
+              ariaLabel={`职务第 ${i + 1} ${unit}`}
+              value={line}
+              placeholder={i === 0 ? "职务" : `第 ${i + 1} ${unit}`}
+              onChange={(v) => {
+                const next = [...list];
+                next[i] = v.replace(/\n/g, " ");
+                set(next);
+              }}
+            />
+            {list.length > 1 ? (
+              <button
+                type="button"
+                aria-label={`删除第 ${i + 1} ${unit}职务`}
+                onClick={() => set(list.filter((_, j) => j !== i))}
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-white/10 hover:text-destructive"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-faint">每框一{unit}，不自动换{unit}</span>
+          <button
+            type="button"
+            disabled={list.length >= MAX_TITLES}
+            onClick={() => set([...list, ""])}
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] text-muted-foreground ring-1 ring-border hover:bg-accent hover:text-foreground disabled:opacity-40"
+          >
+            <Plus className="size-3" /> 加一{unit}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

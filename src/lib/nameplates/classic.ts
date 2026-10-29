@@ -248,7 +248,7 @@ export function measureClassic(ctx: CanvasRenderingContext2D, person: Person, cf
   ctx.font = titleFont;
   const tTrack = T * TYPE.titleTrack;
   const [ta, tb] = inkOf(ctx, T);
-  const lines = packTitle(person.title, person.titleLines ?? 1).filter((l) => l.length > 0);
+  const lines = packTitle(person.title).filter((l) => l.length > 0);
   const lineWs = lines.map((l) => trackedW(ctx, l, tTrack));
   ctx.restore();
 
@@ -1079,7 +1079,8 @@ export function drawClassicPlate(
         chars.forEach((ch, i) => {
           const last = i === chars.length - 1;
           if (ch === "、" || ch === "，") {
-            paintText(ctx, pal, ch, p.cx + m.T * 0.1, ty - m.T * 0.82, 0, pal.title, m.T, !!p.onBand);
+            // vertical punctuation sits in the upper-right of its own cell
+            paintText(ctx, pal, ch, p.cx + m.T * 0.5, ty - m.T * 0.6, 0, pal.title, m.T, !!p.onBand);
           } else {
             paintText(ctx, pal, ch === " " ? "·" : ch, p.cx, ty, 0, pal.title, m.T, !!p.onBand);
           }

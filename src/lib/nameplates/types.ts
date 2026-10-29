@@ -96,7 +96,9 @@ export interface LayerXform {
 export interface Person {
   id: string;
   name: string;
+  /** 职务, one per input box, joined with "\n" — each is one line (横排) / column (竖排). */
   title: string;
+  /** @deprecated pre-2026-10-29 auto-wrap count; migrated into explicit "\n" lines on load. */
   titleLines?: TitleLines;
   /** Secondary line: English name / pinyin (rendered ALL CAPS, wide tracking). */
   en?: string;
@@ -226,10 +228,10 @@ export function normalizeFamily(style: string): { style: NameplateStyle; orient?
 }
 
 export const DEFAULT_PEOPLE: Person[] = [
-  { id: "p1", name: "熊义志", title: "吕梁市委副书记、市长", titleLines: 1, en: "XIONG YIZHI" },
-  { id: "p2", name: "宋书玉", title: "中国酒业协会理事长", titleLines: 1, en: "SONG SHUYU" },
-  { id: "p3", name: "武跃飞", title: "汾酒集团党委副书记、副董事长、总经理", titleLines: 2, en: "WU YUEFEI" },
-  { id: "p4", name: "圣地亚哥·托莱多", title: "墨西哥驻华使馆贸易与投资参赞", titleLines: 1, en: "SANTIAGO TOLEDO" },
+  { id: "p1", name: "熊义志", title: "吕梁市委副书记、市长", en: "XIONG YIZHI" },
+  { id: "p2", name: "宋书玉", title: "中国酒业协会理事长", en: "SONG SHUYU" },
+  { id: "p3", name: "武跃飞", title: "汾酒集团党委副书记\n副董事长、总经理", en: "WU YUEFEI" },
+  { id: "p4", name: "圣地亚哥·托莱多", title: "墨西哥驻华使馆贸易与投资参赞", en: "SANTIAGO TOLEDO" },
 ];
 
 export const DEFAULT_CONFIG: Omit<RenderConfig, "people"> = {

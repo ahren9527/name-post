@@ -34,7 +34,7 @@ function ensurePhoto(onReady: () => void) {
   };
 }
 
-const SAMPLE: Person = { id: "thumb", name: "张小兰", title: "主持人", en: "ZHANG XIAOLAN", titleLines: 1 };
+const SAMPLE: Person = { id: "thumb", name: "张小兰", title: "主持人", en: "ZHANG XIAOLAN" };
 
 /**
  * Real renderer output for a template card, cropped to the quadrant the

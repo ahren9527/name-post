@@ -2,6 +2,7 @@ import { ClipboardPaste, Copy, GripVertical, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useStudio } from "@/lib/nameplates/store";
+import { joinTitles, packTitle } from "@/lib/nameplates/text";
 import type { Person } from "@/lib/nameplates/types";
 import { cn } from "@/lib/utils";
 
@@ -29,9 +30,9 @@ function parseBulk(text: string): Person[] {
       return {
         id: `p-bulk-${Date.now()}-${i}`,
         name,
-        title,
+        // 多个职务用 / 分隔，每个占一行（竖排为一列）
+        title: joinTitles(title.split(/\s*[/／]\s*/).filter(Boolean)),
         en: /^[A-Za-z .'-]+$/.test(en) ? en : "",
-        titleLines: (title.length > 16 ? 2 : 1) as 1 | 2,
       };
     })
     .filter((p) => p.name);
@@ -83,13 +84,13 @@ export function GuestPanel() {
       {bulk != null ? (
         <div className="mx-4 mb-3 flex flex-col gap-2 rounded-lg bg-black/25 p-3 ring-1 ring-border">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            每行一位：<span className="text-foreground/80">姓名 ⇥ 职务 ⇥ 英文（可选）</span>，用 Tab、两个空格或竖线分隔。会替换当前名单。
+            每行一位：<span className="text-foreground/80">姓名 ⇥ 职务 ⇥ 英文（可选）</span>，用 Tab、两个空格或竖线分隔；多个职务用 / 隔开，每个占一行（竖排一列）。会替换当前名单。
           </p>
           <textarea
             value={bulk}
             onChange={(e) => setBulk(e.target.value)}
             rows={5}
-            placeholder={"熊义志\t吕梁市委副书记、市长\tXIONG YIZHI\n宋书玉\t中国酒业协会理事长"}
+            placeholder={"熊义志\t吕梁市委副书记 / 市长\tXIONG YIZHI\n宋书玉\t中国酒业协会理事长"}
             className="w-full resize-none rounded-md bg-black/30 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed ring-1 ring-input outline-none focus:ring-brand/60"
           />
           <div className="flex justify-end gap-1.5">
@@ -167,7 +168,7 @@ export function GuestPanel() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium">{item.name || "未命名"}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{item.title || "职务"}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{packTitle(item.title).join(" / ") || "职务"}</span>
                     </span>
                   </button>
                   <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

@@ -525,7 +525,7 @@ function measureBand(
   ctx.font = `500 ${nameSize}px ${nameFace(cfg)}`;
   const nameW = trackedWidth(ctx, person.name, nameTracking(person.name) * nu);
   ctx.font = `400 ${titleSize}px ${titleFace(cfg)}`;
-  const titleLines = packTitle(person.title, person.titleLines ?? 1);
+  const titleLines = packTitle(person.title);
   const titleW = titleLines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
   const titleH = titleBlockH(titleLines.length, titleSize);
   const bandH = padY + titleH - titleSize * 0.28 + padY;
@@ -663,7 +663,7 @@ function measureBar(
   ctx.font = `500 ${nameSize}px ${nameFace(cfg)}`;
   const nameW = trackedWidth(ctx, person.name, nameTracking(person.name) * nu);
   ctx.font = `400 ${titleSize}px ${titleFace(cfg)}`;
-  const titleLines = packTitle(person.title, person.titleLines ?? 1);
+  const titleLines = packTitle(person.title);
   const titleW = titleLines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
   const titleH = titleBlockH(titleLines.length, titleSize);
   const top = isTopAlign(cfg);
@@ -848,7 +848,7 @@ function measurePanel(ctx: CanvasRenderingContext2D, person: Person, cfg: Render
   const restTrack = nameTracking(rest) * nu;
   const restW = rest ? trackedWidth(ctx, rest, restTrack) : 0;
   ctx.font = `400 ${titleSize}px ${titleFace(cfg)}`;
-  const titleLines = packTitle(person.title, person.titleLines ?? 1);
+  const titleLines = packTitle(person.title);
   const titleW = titleLines.reduce((w, l) => Math.max(w, ctx.measureText(l).width), 0);
   const titleH = titleBlockH(titleLines.length, titleSize);
   const box = nameSize * 1.18;

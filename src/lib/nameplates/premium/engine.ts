@@ -383,8 +383,7 @@ function titleU(cfg: RenderConfig) {
 
 /** Title lines; a list separator left dangling at a line break is dropped. */
 function titlesOf(p: Person): string[] {
-  const lines = packTitle(p.title, p.titleLines ?? 1);
-  return lines.map((l, i) => (i < lines.length - 1 ? l.replace(/[、，,;；]\s*$/, "") : l));
+  return packTitle(p.title);
 }
 
 function surnameOf(name: string) {

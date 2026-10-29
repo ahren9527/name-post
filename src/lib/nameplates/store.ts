@@ -7,6 +7,7 @@ import {
   type CustomFontMeta,
 } from "./fonts";
 import { groupOf, migrateFavorites, type StyleCard } from "./presets";
+import { migrateTitle } from "./text";
 import { isPremiumId, supportsVertical } from "./premium/spec";
 import { snapshotFromState, type ProjectSnapshot } from "./projects";
 import {
@@ -31,6 +32,12 @@ import {
   isColumnStyle,
   normalizeFamily,
 } from "./types";
+
+/** Old saves stored one 职务 string + titleLines (auto-wrap); turn that into explicit one-per-line 职务. */
+function migratePerson(p: Person): Person {
+  const { titleLines, ...rest } = p;
+  return { ...rest, title: migrateTitle(p.title ?? "", titleLines) };
+}
 
 type HistorySnap = ProjectSnapshot;
 
@@ -232,7 +239,7 @@ export const useStudio = create<StudioState>()(
           commit({
             people: [
               ...get().people,
-              { id, name: "嘉宾姓名", title: "职务", titleLines: 1 },
+              { id, name: "嘉宾姓名", title: "职务" },
             ],
             activePersonId: id,
           });
@@ -501,7 +508,7 @@ export const useStudio = create<StudioState>()(
           const fam = normalizeFamily(snap.style);
           commit({
             projectName: snap.name,
-            people: snap.people.map((p) => ({ ...p })),
+            people: snap.people.map(migratePerson),
             style: fam.style,
             layout: snap.layout,
             side: snap.side,
@@ -621,6 +628,7 @@ export const useStudio = create<StudioState>()(
           ...current,
           ...p,
           style: fam.style,
+          ...(p.people ? { people: p.people.map(migratePerson) } : {}),
           orient: p.orient ?? fam.orient ?? "horizontal",
           animIn: p.animIn ?? "left",
           ease: p.ease ?? "smooth",
