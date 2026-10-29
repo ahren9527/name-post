@@ -906,7 +906,9 @@ function columnTops(chars: string[], adv: number): number[] {
   chars.forEach((c, i) => {
     out.push(y);
     const next = chars[i + 1];
-    y += VPUNCT.has(c) || (next && VPUNCT.has(next)) ? adv * 0.75 : adv;
+    // a typed space is a short gap (never a 圆点)
+    if (c === " ") y += adv * 0.6;
+    else y += VPUNCT.has(c) || (next && VPUNCT.has(next)) ? adv * 0.75 : adv;
   });
   return out;
 }
@@ -956,7 +958,7 @@ function columnItem(
   x: number,
   y: number,
 ): TextItem {
-  const chars = [...text].filter((c) => c !== " ");
+  const chars = [...text.replace(/[ \u3000]+/g, " ").trim()];
   const it = item(ctx, kind, index, chars.join(""), fontStr, size, 0, fill, alpha);
   const h = columnHeight(chars, size, adv);
   it.mode = "v";

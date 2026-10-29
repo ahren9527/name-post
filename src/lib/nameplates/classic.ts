@@ -207,7 +207,9 @@ function inkOf(ctx: CanvasRenderingContext2D, size: number): [number, number] {
 /* vertical title columns (shared with the legacy punctuation handling) */
 function vStep(ch: string, size: number, gap: number, last: boolean) {
   if (ch === "、" || ch === "，") return size * 0.42;
-  if (ch === "·" || ch === " ") return size * 0.7;
+  if (ch === "·") return size * 0.7;
+  // a typed space is just a gap — no auto 圆点
+  if (ch === " " || ch === "\u3000") return size * 0.6;
   return last ? size : size + gap;
 }
 
@@ -1081,8 +1083,8 @@ export function drawClassicPlate(
           if (ch === "、" || ch === "，") {
             // vertical punctuation sits in the upper-right of its own cell
             paintText(ctx, pal, ch, p.cx + m.T * 0.5, ty - m.T * 0.6, 0, pal.title, m.T, !!p.onBand);
-          } else {
-            paintText(ctx, pal, ch === " " ? "·" : ch, p.cx, ty, 0, pal.title, m.T, !!p.onBand);
+          } else if (ch !== " " && ch !== "\u3000") {
+            paintText(ctx, pal, ch, p.cx, ty, 0, pal.title, m.T, !!p.onBand);
           }
           ty += vStep(ch, m.T, m.titleGapV, last);
         });
