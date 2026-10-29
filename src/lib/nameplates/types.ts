@@ -24,18 +24,59 @@ export type NameplateStyle =
   | "duo"
   | "hook"
   | "ledge"
-  | "fold";
+  | "fold"
+  // Flagship (data-driven premium engine, see ./premium)
+  | "goldnavy"
+  | "blackgold"
+  | "keynote"
+  | "glass"
+  | "newsduo"
+  | "techedge"
+  | "seal"
+  | "xuan"
+  | "bizblue"
+  | "redcarpet"
+  | "sport"
+  | "dialog"
+  | "variety"
+  | "docu"
+  | "finance"
+  | "lecture"
+  | "wedding"
+  | "aurora"
+  | "capsule"
+  | "magazine"
+  | "ink"
+  | "neon"
+  | "applewhite"
+  | "govred"
+  | "redsun"
+  | "strips"
+  | "lightline"
+  | "silk"
+  | "techblue"
+  | "viewfinder"
+  | "goldink"
+  | "comic"
+  | "flare"
+  | "metal"
+  | "serial"
+  | "scroll";
 export type LayoutMode = "stack" | "sequence";
 export type Side = "left" | "right";
 export type Orient = "horizontal" | "vertical";
 export type TextAlign = "left" | "right" | "top";
-export type PreviewBg = "checker" | "stage" | "live";
+export type PreviewBg = "checker" | "stage" | "light" | "live";
 export type Workspace = "editor" | "presets" | "projects";
 export type EditorNav = "style" | "guests" | "anim";
 export type ExportFps = 25 | 30 | 29.97;
 export type TitleLines = 1 | 2 | 3;
 export type AnimIn = "none" | "fade" | "up" | "down" | "left" | "right" | "scale";
-export type EaseKind = "smooth" | "linear" | "snap";
+export type EaseKind = "smooth" | "linear" | "snap" | "expo" | "quint" | "back";
+/** Text legibility treatment. "outline" is the legacy black stroke + halo. */
+export type TextFx = "none" | "soft" | "outline";
+/** 衬底 behind plate-less type: soft hugging shade, nothing, or a clean solid plate. */
+export type TextBacking = "soft" | "none" | "solid";
 
 export type ClipLayer = "name" | "title" | "slash" | "band";
 
@@ -55,8 +96,14 @@ export interface LayerXform {
 export interface Person {
   id: string;
   name: string;
+  /** 职务, one per input box, joined with "\n" — each is one line (横排) / column (竖排). */
   title: string;
+  /** @deprecated pre-2026-10-29 auto-wrap count; migrated into explicit "\n" lines on load. */
   titleLines?: TitleLines;
+  /** Secondary line: English name / pinyin (rendered ALL CAPS, wide tracking). */
+  en?: string;
+  /** Org / number slot (e.g. 运动斜切 jersey number, 新闻双层条 tag). */
+  tag?: string;
   xform?: Partial<Record<ClipLayer, LayerXform>>;
 }
 
@@ -83,6 +130,11 @@ export interface RenderConfig {
   stagger: number;
   animIn: AnimIn;
   ease: EaseKind;
+  /** One subtle light sweep across the plate during hold (premium templates). */
+  sweep: boolean;
+  textFx: TextFx;
+  /** 衬底 (plate-less templates + classic styles). Missing = "soft". */
+  backing?: TextBacking;
 }
 
 export const STYLE_META: Record<
@@ -108,6 +160,42 @@ export const STYLE_META: Record<
   hook: { label: "勾线", caption: "侧斜勾线 · 四种构图" },
   ledge: { label: "侧勾", caption: "侧竖勾 · 四种构图" },
   fold: { label: "叠字", caption: "首尾叠字 · 四种构图" },
+  goldnavy: { label: "央视金辉", caption: "藏青渐变底 · 宋体 · 金线" },
+  blackgold: { label: "黑金典藏", caption: "黑底细金框 · 英文副行" },
+  keynote: { label: "发布会极简", caption: "无装饰 · 大字 · 留白" },
+  glass: { label: "毛玻璃卡", caption: "烟熏玻璃底板 · 高光边" },
+  newsduo: { label: "新闻双层条", caption: "白色姓名条 + 红色职务块" },
+  techedge: { label: "科技光边", caption: "深色切角底 · 青色流光边" },
+  seal: { label: "国风印章", caption: "宋体 · 红色印章 · 宣纸纹理" },
+  xuan: { label: "宣纸竖排", caption: "竖排姓名 · 细线 · 纪录片" },
+  bizblue: { label: "商务蓝白", caption: "白色卡片 · 蓝色侧轨" },
+  redcarpet: { label: "红毯典礼", caption: "红金渐变 · 典礼" },
+  sport: { label: "运动斜切", caption: "陡斜切色块 · 号码位" },
+  dialog: { label: "对话访谈", caption: "两人镜像 · 左右对坐" },
+  variety: { label: "卫视综艺", caption: "糖果色圆角块 · 弹跳登场" },
+  docu: { label: "纪录片", caption: "无底板 · 细宋宽字距 · 胶片感" },
+  finance: { label: "财经数据", caption: "终端深色底 · 代码行 · 走势线" },
+  lecture: { label: "学术讲座", caption: "白卡 · 院系色顶线 · 机构行" },
+  wedding: { label: "婚礼典雅", caption: "香槟粉底 · 花体英文 · 细金线" },
+  aurora: { label: "极光渐变", caption: "流动极光色卡 · 柔光" },
+  capsule: { label: "胶囊标签", caption: "分段胶囊 · 状态标签 · 现代 UI" },
+  magazine: { label: "杂志封面", caption: "超大首字母 · 编辑排版" },
+  ink: { label: "水墨", caption: "飞白笔触底 · 宋体 · 朱印" },
+  neon: { label: "赛博霓虹", caption: "霓虹描边 · 辉光 · 闪烁点亮" },
+  applewhite: { label: "发布会白", caption: "白色圆角卡 · 黑灰字 · 极简" },
+  govred: { label: "政务庄重", caption: "中国红底 · 金色回纹 · 对称" },
+  redsun: { label: "朱日题名", caption: "朱红圆日衬姓 · 宋体 · 无底板" },
+  strips: { label: "朱条题名", caption: "每行职务一条红底 · 渐隐收尾" },
+  lightline: { label: "光线粒子", caption: "发光细线 · 粒子漂浮 · 无底板" },
+  silk: { label: "红绸飘带", caption: "飘逸红绸衬底 · 金白字" },
+  techblue: { label: "科技蓝条", caption: "蓝色斜切光条 · 箭头律动" },
+  viewfinder: { label: "取景框", caption: "四角取景框 · 录制红点 · 现场感" },
+  goldink: { label: "金墨山水", caption: "鎏金楷书 · 远山水墨 · 无底板" },
+  comic: { label: "漫画贴纸", caption: "描边贴纸 · 撞色 · 弹跳" },
+  flare: { label: "流光光晕", caption: "镜头光晕横扫 · 暖金大字" },
+  metal: { label: "金属拉丝", caption: "银色拉丝金属条 · 斜光扫过" },
+  serial: { label: "编号极简", caption: "大号编号 · 细线 · 系列访谈" },
+  scroll: { label: "卷轴", caption: "宣纸卷轴 · 木轴展开 · 朱印" },
 };
 
 export function isColumnStyle(orient: Orient) {
@@ -140,14 +228,14 @@ export function normalizeFamily(style: string): { style: NameplateStyle; orient?
 }
 
 export const DEFAULT_PEOPLE: Person[] = [
-  { id: "p1", name: "熊义志", title: "吕梁市委副书记、市长", titleLines: 1 },
-  { id: "p2", name: "宋书玉", title: "中国酒业协会理事长", titleLines: 1 },
-  { id: "p3", name: "武跃飞", title: "汾酒集团党委副书记、副董事长、总经理", titleLines: 2 },
-  { id: "p4", name: "圣地亚哥·托莱多", title: "墨西哥驻华使馆贸易与投资参赞", titleLines: 1 },
+  { id: "p1", name: "熊义志", title: "吕梁市委副书记、市长", en: "XIONG YIZHI" },
+  { id: "p2", name: "宋书玉", title: "中国酒业协会理事长", en: "SONG SHUYU" },
+  { id: "p3", name: "武跃飞", title: "汾酒集团党委副书记\n副董事长、总经理", en: "WU YUEFEI" },
+  { id: "p4", name: "圣地亚哥·托莱多", title: "墨西哥驻华使馆贸易与投资参赞", en: "SANTIAGO TOLEDO" },
 ];
 
 export const DEFAULT_CONFIG: Omit<RenderConfig, "people"> = {
-  style: "duo",
+  style: "goldnavy",
   layout: "sequence",
   side: "left",
   orient: "horizontal",
@@ -157,17 +245,20 @@ export const DEFAULT_CONFIG: Omit<RenderConfig, "people"> = {
   titleSize: 1,
   nameFont: '"Noto Serif SC", "Songti SC", "STSong", "WenQuanYi Zen Hei", serif',
   titleFont: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", "WenQuanYi Zen Hei", sans-serif',
-  nameColor: "#f7f7f7",
-  titleColor: "#e8e8e8",
-  accentColor: "#e8b423",
-  bandColor: "rgba(12,10,6,0.5)",
+  nameColor: "#F7F2E8",
+  titleColor: "#E9E4DA",
+  accentColor: "#CFAA66",
+  bandColor: "rgba(14,30,58,0.94)",
   sectionLabel: "",
-  inDuration: 0.7,
+  inDuration: 0.9,
   holdDuration: 4.2,
-  outDuration: 0.55,
+  outDuration: 0.6,
   stagger: 0.16,
   animIn: "left",
   ease: "smooth",
+  sweep: true,
+  textFx: "soft",
+  backing: "soft",
 };
 
 export function totalDuration(cfg: RenderConfig): number {

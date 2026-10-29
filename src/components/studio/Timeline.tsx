@@ -1,6 +1,6 @@
 import {
-  ChevronsLeft,
-  ChevronsRight,
+  Layers,
+  Magnet,
   Pause,
   Play,
   Repeat,
@@ -10,7 +10,6 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { Button } from "@/components/ui/button";
 import { renderConfigFromState } from "@/lib/nameplates/renderer";
 import { useStudio } from "@/lib/nameplates/store";
 import { formatTimecode, NTSC_FPS, totalDuration } from "@/lib/nameplates/types";
@@ -157,6 +156,7 @@ export function Timeline() {
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
   const [hover, setHover] = useState<number | null>(null);
+  const [showLayers, setShowLayers] = useState(false);
   const duration = usePlayback(loop);
   const currentTime = useStudio((s) => s.currentTime);
   const playing = useStudio((s) => s.playing);
@@ -167,6 +167,7 @@ export function Timeline() {
   const holdDuration = useStudio((s) => s.holdDuration);
   const outDuration = useStudio((s) => s.outDuration);
   const layout = useStudio((s) => s.layout);
+  const stagger = useStudio((s) => s.stagger);
   const scrollRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -279,116 +280,134 @@ export function Timeline() {
         ? people[clamp(Math.floor(hover / slot), 0, Math.max(people.length - 1, 0))]
         : people.find((p) => p.id === activePersonId);
 
-  const tracks = [
+  const layerTracks = [
     { id: "name", label: "姓名", color: "bg-track-name" },
     { id: "title", label: "职务", color: "bg-track-title" },
-    { id: "slash", label: "装饰线条", color: "bg-track-deco" },
-    { id: "band", label: "背景色带", color: "bg-track-band" },
+    { id: "slash", label: "装饰", color: "bg-track-deco" },
+    { id: "band", label: "底板", color: "bg-track-band" },
   ];
 
-  const tickCount = Math.max(4, Math.round((zoom >= 2 ? 12 : 7) * Math.min(dur / 8, 2)));
+  const tickCount = Math.max(4, Math.round(6 * zoom) + 1);
   const playPct = (currentTime / dur) * 100;
+  const activeIdx = Math.max(0, people.findIndex((p) => p.id === activePersonId));
+  const active = people[activeIdx];
+
+  const iconBtn =
+    "flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30";
+
+  const segment = (p: (typeof people)[number], i: number, color: string, layer: string, label?: boolean) => {
+    const stg = stagger;
+    const start = layout === "sequence" ? i * slot : i * stg;
+    // simultaneous: everyone leaves together at the end
+    const len = layout === "sequence" ? slot : dur - start;
+    const hold = Math.max(0, len - inDuration - outDuration);
+    const on = p.id === activePersonId;
+    const picked = selectedClip?.personId === p.id && selectedClip.layer === layer;
+    return (
+      <div
+        key={p.id + layer}
+        data-clip-layer={layer || undefined}
+        data-clip-person={layer ? p.id : undefined}
+        className={cn(
+          "absolute top-1 bottom-1 flex overflow-hidden rounded-[5px] transition-opacity",
+          picked ? "opacity-100 ring-2 ring-brand" : on ? "opacity-100 ring-1 ring-white/35" : "opacity-50 hover:opacity-75",
+        )}
+        style={{ left: `${(start / dur) * 100}%`, width: `${(len / dur) * 100}%` }}
+      >
+        <span className={cn("h-full", color)} style={{ width: `${(inDuration / len) * 100}%`, opacity: 0.55 }} />
+        <span className={cn("h-full", color)} style={{ width: `${(hold / len) * 100}%`, opacity: 0.9 }} />
+        <span className={cn("h-full", color)} style={{ width: `${(outDuration / len) * 100}%`, opacity: 0.4 }} />
+        {label ? (
+          <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-1.5 truncate text-[11px] font-medium text-[#1b160c]">
+            <span className="font-mono text-[9px] opacity-70">{String(i + 1).padStart(2, "0")}</span>
+            {p.name}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="flex shrink-0 flex-col border-t border-border bg-panel">
-      <div className="flex flex-wrap items-center gap-1 px-3 py-1.5">
-        <Button size="icon-sm" variant="ghost" aria-label="上一位移" onClick={() => skipPerson(-1)}>
-          <SkipBack />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="secondary"
+      <div className="flex flex-wrap items-center gap-1 px-3 py-2 md:px-4">
+        <button type="button" className={iconBtn} aria-label="上一位" title="上一位" onClick={() => skipPerson(-1)}>
+          <SkipBack className="size-4" />
+        </button>
+        <button
+          type="button"
           aria-label={playing ? "暂停" : "播放"}
+          title="播放 / 暂停（空格）"
           onClick={() => {
             const st = useStudio.getState();
             if (st.currentTime >= duration - 0.01) st.setCurrentTime(0);
             st.setPlaying(!st.playing);
           }}
+          className="flex size-9 items-center justify-center rounded-full bg-foreground text-background transition-transform hover:scale-105 active:scale-95"
         >
-          {playing ? <Pause /> : <Play className="ml-px" />}
-        </Button>
-        <Button size="icon-sm" variant="ghost" aria-label="下一位移" onClick={() => skipPerson(1)}>
-          <SkipForward />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="回到开头"
-          onClick={() => {
-            useStudio.getState().setCurrentTime(0);
-            useStudio.getState().setPlaying(false);
-          }}
-        >
-          <ChevronsLeft />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="跳到结尾"
-          onClick={() => {
-            useStudio.getState().setCurrentTime(duration);
-            useStudio.getState().setPlaying(false);
-          }}
-        >
-          <ChevronsRight />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant={loop ? "secondary" : "ghost"}
-          aria-label="循环播放"
-          onClick={() => setLoop((v) => !v)}
-        >
-          <Repeat className={loop ? "text-brand" : ""} />
-        </Button>
-        <span className="ml-1 font-mono text-xs tabular-nums text-muted-foreground">
-          {formatTimecode(currentTime)} / {formatTimecode(duration)}
-        </span>
+          {playing ? <Pause className="size-4" fill="currentColor" /> : <Play className="ml-0.5 size-4" fill="currentColor" />}
+        </button>
+        <button type="button" className={iconBtn} aria-label="下一位" title="下一位" onClick={() => skipPerson(1)}>
+          <SkipForward className="size-4" />
+        </button>
         <button
           type="button"
-          onClick={() => setSnap((v) => !v)}
-          className={cn(
-            "ml-2 hidden h-6 rounded-sm px-2 text-[11px] sm:inline",
-            snap ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
-          )}
+          className={cn(iconBtn, loop && "bg-accent text-brand")}
+          aria-label="循环播放"
+          title="循环播放"
+          onClick={() => setLoop((v) => !v)}
         >
-          吸附 {snap ? "开" : "关"}
+          <Repeat className="size-4" />
         </button>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="缩小"
-            disabled={zoom <= 1}
-            onClick={() => setZoom((z) => clamp(z - 0.5, 1, 4))}
-          >
-            <ZoomOut />
-          </Button>
-          <span className="w-10 text-center font-mono text-[11px] text-muted-foreground">
-            {Math.round(zoom * 100)}%
+        <span className="ml-2 font-mono text-[13px] tabular-nums text-foreground">{formatTimecode(currentTime)}</span>
+        <span className="font-mono text-[11px] tabular-nums text-faint">/ {formatTimecode(duration)}</span>
+        {active ? (
+          <span className="ml-3 hidden max-w-48 truncate rounded-full bg-black/30 px-2.5 py-1 text-[11px] text-muted-foreground ring-1 ring-hairline sm:inline">
+            <span className="mr-1.5 font-mono text-[10px] text-brand">{String(activeIdx + 1).padStart(2, "0")}</span>
+            {active.name}
           </span>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="放大"
-            disabled={zoom >= 4}
-            onClick={() => setZoom((z) => clamp(z + 0.5, 1, 4))}
+        ) : null}
+        <div className="ml-auto flex items-center gap-0.5">
+          <button
+            type="button"
+            className={cn(iconBtn, showLayers && "bg-accent text-foreground")}
+            aria-label="分图层"
+            title="展开图层轨道（单击片段微调位置）"
+            onClick={() => setShowLayers((v) => !v)}
           >
-            <ZoomIn />
-          </Button>
+            <Layers className="size-4" />
+          </button>
+          <button
+            type="button"
+            className={cn(iconBtn, snap && "text-foreground")}
+            aria-label="吸附"
+            title={snap ? "吸附：开" : "吸附：关"}
+            onClick={() => setSnap((v) => !v)}
+          >
+            <Magnet className={cn("size-4", !snap && "opacity-50")} />
+          </button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <button type="button" className={iconBtn} aria-label="缩小" disabled={zoom <= 1} onClick={() => setZoom((z) => clamp(z - 0.5, 1, 4))}>
+            <ZoomOut className="size-4" />
+          </button>
+          <span className="w-9 text-center font-mono text-[10px] text-muted-foreground">{Math.round(zoom * 100)}%</span>
+          <button type="button" className={iconBtn} aria-label="放大" disabled={zoom >= 4} onClick={() => setZoom((z) => clamp(z + 0.5, 1, 4))}>
+            <ZoomIn className="size-4" />
+          </button>
         </div>
       </div>
 
-      <div className="flex px-3 pb-3">
-        <div className="w-16 shrink-0 pt-4">
-          <div className="space-y-1">
-            {tracks.map((tr) => (
-              <div key={tr.id} className="flex h-7 items-center text-[11px] text-muted-foreground">
-                {tr.label}
-              </div>
-            ))}
-          </div>
+      <div className="flex px-3 pb-3 md:px-4">
+        <div className="w-14 shrink-0 pt-5">
+          <div className="flex h-9 items-center text-[11px] text-muted-foreground">人名条</div>
+          {showLayers
+            ? layerTracks.map((tr) => (
+                <div key={tr.id} className="flex h-6 items-center text-[10.5px] text-faint">
+                  {tr.label}
+                </div>
+              ))
+            : null}
         </div>
-        <div ref={scrollRef} className="min-w-0 flex-1 overflow-x-auto select-none">
+        <div ref={scrollRef} className="scroll-quiet min-w-0 flex-1 overflow-x-auto select-none">
           <div
             ref={trackRef}
             className="relative cursor-ew-resize touch-none"
@@ -405,13 +424,16 @@ export function Timeline() {
             }}
             onDoubleClick={() => useStudio.getState().setPlaying(true)}
           >
-            <div className="relative mb-1 h-4">
+            <div className="relative mb-1 h-4 border-b border-hairline">
               {Array.from({ length: tickCount }, (_, i) => {
                 const t = (dur * i) / Math.max(tickCount - 1, 1);
                 return (
                   <span
                     key={i}
-                    className="absolute -translate-x-1/2 font-mono text-[10px] text-muted-foreground"
+                    className={cn(
+                      "absolute font-mono text-[9.5px] text-faint",
+                      i === 0 ? "" : i === tickCount - 1 ? "-translate-x-full" : "-translate-x-1/2",
+                    )}
                     style={{ left: `${(t / dur) * 100}%` }}
                   >
                     {formatTimecode(t)}
@@ -420,66 +442,41 @@ export function Timeline() {
               })}
             </div>
 
-            <div className="space-y-1">
-              {tracks.map((tr, ti) => (
-                <div key={tr.id} data-clip-layer={tr.id} className="relative h-7 rounded-sm bg-muted">
-                  {people.map((p, i) => {
-                    const start = layout === "sequence" ? i * slot : 0;
-                    const on = p.id === activePersonId;
-                    const picked = selectedClip?.personId === p.id && selectedClip.layer === tr.id;
-                    const left = (start / dur) * 100;
-                    return (
-                      <div
-                        key={p.id + tr.id}
-                        data-clip-layer={tr.id}
-                        data-clip-person={p.id}
-                        className={cn(
-                          "absolute top-0.5 bottom-0.5 flex overflow-hidden rounded-sm",
-                          picked
-                            ? "opacity-100 ring-2 ring-brand"
-                            : on
-                              ? "opacity-100 ring-1 ring-foreground/30"
-                              : "opacity-55",
-                        )}
-                        style={{ left: `${left}%`, width: `${(slot / dur) * 100}%` }}
-                      >
-                        <span className={cn("h-full", tr.color)} style={{ width: `${(inDuration / slot) * 100}%`, opacity: 0.65 }} />
-                        <span className={cn("h-full", tr.color)} style={{ width: `${(holdDuration / slot) * 100}%` }} />
-                        <span className={cn("h-full", tr.color)} style={{ width: `${(outDuration / slot) * 100}%`, opacity: 0.4 }} />
-                        {ti === 0 ? (
-                          <span className="pointer-events-none absolute inset-y-0 left-1.5 flex items-center text-[10px] text-primary-foreground">
-                            {p.name}
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+            <div className="relative h-9 rounded-md bg-black/25 ring-1 ring-hairline">
+              {layout === "sequence" ? (
+                people.map((p, i) => segment(p, i, "bg-track-name", "", true))
+              ) : (
+                <div className="absolute inset-1 flex items-center overflow-hidden rounded-[5px] bg-track-name/85 px-2 text-[11px] font-medium text-[#1b160c]">
+                  同屏 · {people.length} 人（错开 {stagger.toFixed(2)}s）
                 </div>
-              ))}
+              )}
             </div>
+            {showLayers ? (
+              <div className="mt-1 space-y-0.5">
+                {layerTracks.map((tr) => (
+                  <div key={tr.id} data-clip-layer={tr.id} className="relative h-[22px] rounded bg-black/20">
+                    {people.map((p, i) => segment(p, i, tr.color, tr.id))}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {hover != null && !dragging.current ? (
-              <div
-                className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-foreground/35"
-                style={{ left: `${(hover / dur) * 100}%` }}
-              >
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-popover px-1.5 py-0.5 font-mono text-[10px] text-popover-foreground shadow-sm">
+              <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-white/25" style={{ left: `${(hover / dur) * 100}%` }}>
+                <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 rounded bg-popover px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-popover-foreground shadow ring-1 ring-border">
                   {formatTimecode(hover)}
                   {hoverPerson ? ` · ${hoverPerson.name}` : ""}
                 </div>
               </div>
             ) : null}
 
-            <div className="pointer-events-none absolute top-4 bottom-0 z-30" style={{ left: `${playPct}%` }}>
-              <div className="absolute top-0 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1 rotate-45 bg-foreground" />
-              <div className="absolute top-0 bottom-0 left-1/2 w-0.5 -translate-x-1/2 bg-foreground" />
+            <div className="pointer-events-none absolute top-3 bottom-0 z-30" style={{ left: `${playPct}%` }}>
+              <div className="absolute top-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-[2px] bg-brand shadow" />
+              <div className="absolute top-1 bottom-0 left-1/2 w-px -translate-x-1/2 bg-brand" />
             </div>
           </div>
         </div>
       </div>
-      <p className="px-3 pb-2 text-[10px] text-muted-foreground">
-        单击片段打开变换条 · 拖动轨道擦洗 · 方向键逐帧 · 空格播放 · Esc 取消选中
-      </p>
     </div>
   );
 }

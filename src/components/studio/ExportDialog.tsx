@@ -19,6 +19,7 @@ import {
   pickMovKind,
   type MovKind,
 } from "@/lib/nameplates/export";
+import { FONT_SANS, FONT_SERIF, loadTextGlyphs } from "@/lib/nameplates/fonts";
 import { renderConfigFromState, soloConfig } from "@/lib/nameplates/renderer";
 import { useStudio } from "@/lib/nameplates/store";
 import { personSlotDuration, type ExportFps, isNtscFps } from "@/lib/nameplates/types";
@@ -96,6 +97,11 @@ export function ExportDialog({
     const soloName = config.people.length === 1 ? config.people[0]!.name.trim() : "";
     setBusy(true);
     setProgress(0);
+    setStatus("准备字体…");
+    await loadTextGlyphs(
+      config.people.flatMap((p) => [p.name, p.title, p.tag ?? ""]),
+      [config.nameFont, config.titleFont, FONT_SERIF, FONT_SANS],
+    );
     setStatus("准备编码…");
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
@@ -164,8 +170,8 @@ export function ExportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>导出设置</DialogTitle>
-          <DialogDescription>MOV / WebM 透明通道，可按人单独导出。默认 29.97 fps。</DialogDescription>
+          <DialogTitle>导出</DialogTitle>
+          <DialogDescription>带透明通道，直接拖进 Premiere / Final Cut / 达芬奇。可按人单独导出。</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-2">
@@ -310,11 +316,11 @@ function FormatCard({
       onClick={onClick}
       className={cn(
         "flex flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left transition-[border-color,background-color] duration-150",
-        active ? "border-primary/40 bg-secondary" : "border-border hover:bg-accent",
+        active ? "border-brand/60 bg-accent shadow-[0_0_0_3px_rgb(217_181_108/0.12)]" : "border-border hover:bg-accent",
         disabled && "cursor-not-allowed opacity-40",
       )}
     >
-      <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
+      <span className={cn("[&_svg]:size-4", active ? "text-brand" : "text-muted-foreground")}>{icon}</span>
       <span className="text-sm font-medium">{title}</span>
       <span className="text-[11px] text-muted-foreground">{caption}</span>
     </button>

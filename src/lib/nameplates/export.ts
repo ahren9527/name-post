@@ -70,10 +70,12 @@ async function pickAlphaWebmCodec(): Promise<VideoCodec> {
   throw new Error("当前浏览器无法编码带透明通道的视频，请改用 PNG 序列。");
 }
 
+/**
+ * MOV 一律用 PNG 编码（32 位 RGBA，无损真透明）。
+ * 之前会优先用 ProRes / HEVC，但 WebCodecs 编出的透明通道是独立的旁路数据，
+ * MOV 容器写不进去，结果在 Mac / iPhone / 装了 HEVC 的 Windows 上导出的是黑底不透明视频。
+ */
 export async function pickMovKind(): Promise<MovKind> {
-  const options = { width: 1920, height: 1080, alpha: "keep" as const };
-  if (await canEncodeVideo("prores", options)) return "prores";
-  if (await canEncodeVideo("hevc", options)) return "hevc";
   return "png";
 }
 
@@ -196,24 +198,6 @@ async function encodeMovAlpha(opts: {
   fps: number;
   onProgress?: ExportProgress;
 }): Promise<Blob> {
-  const kind = await pickMovKind();
-  if (kind === "prores") {
-    return encodeWithContainer({
-      ...opts,
-      codec: "prores",
-      format: new MovOutputFormat({ fastStart: "in-memory" }),
-      mime: "video/quicktime",
-      fullCodecString: "ap4h",
-    });
-  }
-  if (kind === "hevc") {
-    return encodeWithContainer({
-      ...opts,
-      codec: "hevc",
-      format: new MovOutputFormat({ fastStart: "in-memory" }),
-      mime: "video/quicktime",
-    });
-  }
   return encodePngMov(opts);
 }
 
